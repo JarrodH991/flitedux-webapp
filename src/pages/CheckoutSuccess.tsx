@@ -11,8 +11,8 @@ export default function CheckoutSuccess() {
         </p>
 
         <div style={styles.buttonGroup}>
-          <Link to="/myflitedux" style={styles.primaryButton}>
-            Go to My Dashboard (MyFlitedux)
+          <Link to="/dashboard" style={styles.primaryButton}>
+            Go to My Dashboard (myFlitedux)
           </Link>
           <Link to="/courses" style={styles.secondaryButton}>
             Browse More Courses

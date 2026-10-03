@@ -1,7 +1,18 @@
-import React, { useState } from 'react';
+// ============================================================================
+// src/pages/Courses.tsx
+//
+// The course catalogue. Shows all courses with a filter between online and
+// in-person modes. If the user is signed in, purchased courses show an
+// "Owned" badge and a "Continue →" button instead of "Add to Cart".
+// ============================================================================
+
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
-import { courses, type Course, type Mode } from '../data/courses';
+import { useAuth } from '../context/authHooks';
+import * as api from '../services/api';
+import { courses, type Mode } from '../data/courses';
+import type { Course, Enrolment } from '../types/course.types';
 
 const pageCss = `
 /* ---------- Tab pill with sliding indicator ---------- */
@@ -79,6 +90,34 @@ const pageCss = `
 .fx-grid-enter > *:nth-child(7) { animation-delay: 180ms; }
 .fx-grid-enter > *:nth-child(8) { animation-delay: 210ms; }
 
+/* ---------- Ownership badge ---------- */
+.fx-owned-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.fx-owned-badge.active {
+  background: #dcfce7;
+  color: #166534;
+}
+.fx-owned-badge.expired {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.fx-owned-badge .dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
 /* ---------- Buttons ---------- */
 .fx-btn {
   display: inline-block;
@@ -108,6 +147,19 @@ const pageCss = `
 .fx-btn.primary:active {
   background-color: #a84000;
   transform: translateY(0) scale(0.97);
+}
+.fx-btn.primary.owned {
+  background-color: #166534;
+  box-shadow: 0 4px 12px rgba(22, 101, 52, 0.25);
+}
+.fx-btn.primary.owned:hover,
+.fx-btn.primary.owned:focus-visible {
+  background-color: #14532d;
+  box-shadow: 0 8px 20px rgba(22, 101, 52, 0.4);
+}
+.fx-btn.primary.renew {
+  background-color: #b45309;
+  box-shadow: 0 4px 12px rgba(180, 83, 9, 0.25);
 }
 .fx-btn.secondary {
   background-color: #ffffff;
@@ -141,6 +193,7 @@ export const Courses: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { cart, addToCart } = useCart();
+  const { user } = useAuth();
   const queryParams = new URLSearchParams(location.search);
   const searchQuery = queryParams.get('search')?.toLowerCase() || '';
 
@@ -148,6 +201,48 @@ export const Courses: React.FC = () => {
     const saved = sessionStorage.getItem('flitedux_course_mode');
     return saved === 'online' || saved === 'inperson' ? saved : 'inperson';
   });
+
+  // The user's enrolments, keyed by courseSlug for O(1) lookup
+  const [enrolments, setEnrolments] = useState<Enrolment[]>([]);
+
+  // ---------------------------------------------------------------------------
+  // Reset the enrolment list whenever the user changes (signs in, signs out,
+  // or switches accounts). Doing this during render instead of inside an
+  // effect avoids the "cascading renders" warning React gives for
+  // synchronous setState inside an effect body.
+  //
+  // See: https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  // ---------------------------------------------------------------------------
+  const currentUserId = user?.id ?? null;
+  const [prevUserId, setPrevUserId] = useState<string | null>(currentUserId);
+  if (currentUserId !== prevUserId) {
+    setPrevUserId(currentUserId);
+    setEnrolments([]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Load the user's enrolments whenever the user changes.
+  // We return early when there's no user rather than calling setEnrolments([]),
+  // because the reset-during-render block above already handles clearing.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    void api.getUserEnrolments(user.id).then((res) => {
+      if (!cancelled && res.ok) {
+        setEnrolments(res.data);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  const enrolmentBySlug = useMemo(() => {
+    const m: Record<string, Enrolment> = {};
+    for (const e of enrolments) m[e.courseSlug] = e;
+    return m;
+  }, [enrolments]);
 
   const handleModeChange = (newMode: Mode) => {
     setMode(newMode);
@@ -172,7 +267,8 @@ export const Courses: React.FC = () => {
       title: course.title,
       description: course.description,
       price: priceNumber,
-    });
+      accessDurationDays: course.accessDurationDays,
+    } as never);
 
     navigate('/cart');
   };
@@ -281,6 +377,9 @@ export const Courses: React.FC = () => {
           >
             {visibleCourses.map((course) => {
               const inCart = cart.some((item) => item.id === course.slug);
+              const enrolment = enrolmentBySlug[course.slug];
+              const isOwned = enrolment?.status === 'active';
+              const isExpired = enrolment?.status === 'expired';
 
               return mode === 'online' && course.online ? (
                 /* ---------- ONLINE CARD ---------- */
@@ -291,13 +390,27 @@ export const Courses: React.FC = () => {
                   onMouseLeave={liftOff}
                 >
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', gap: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', gap: '8px', flexWrap: 'wrap' }}>
                       <span style={{ color: '#d95300', fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                         {course.category}
                       </span>
-                      <span style={{ ...pillStyle, backgroundColor: '#fff7ed', color: '#d95300' }}>
-                        Online
-                      </span>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        {isOwned && (
+                          <span className="fx-owned-badge active">
+                            <span className="dot" aria-hidden="true" />
+                            Owned
+                          </span>
+                        )}
+                        {isExpired && (
+                          <span className="fx-owned-badge expired">
+                            <span className="dot" aria-hidden="true" />
+                            Expired
+                          </span>
+                        )}
+                        <span style={{ ...pillStyle, backgroundColor: '#fff7ed', color: '#d95300' }}>
+                          Online
+                        </span>
+                      </div>
                     </div>
 
                     <Link to={`/courses/${course.slug}`} style={{ textDecoration: 'none' }}>
@@ -337,13 +450,29 @@ export const Courses: React.FC = () => {
                       >
                         Details
                       </Link>
-                      <button
-                        className="fx-btn primary"
-                        onClick={() => handleAddToCart(course)}
-                        style={inCart ? { backgroundColor: '#475569' } : {}}
-                      >
-                        {inCart ? 'View in Cart' : 'Add to Cart'}
-                      </button>
+                      {isOwned ? (
+                        <Link
+                          to={`/courses/${course.slug}`}
+                          className="fx-btn primary owned"
+                        >
+                          Continue →
+                        </Link>
+                      ) : isExpired ? (
+                        <button
+                          className="fx-btn primary renew"
+                          onClick={() => handleAddToCart(course)}
+                        >
+                          Renew
+                        </button>
+                      ) : (
+                        <button
+                          className="fx-btn primary"
+                          onClick={() => handleAddToCart(course)}
+                          style={inCart ? { backgroundColor: '#475569' } : {}}
+                        >
+                          {inCart ? 'View in Cart' : 'Add to Cart'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -356,11 +485,25 @@ export const Courses: React.FC = () => {
                   onMouseLeave={liftOff}
                 >
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', gap: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', gap: '8px', flexWrap: 'wrap' }}>
                       <span style={{ color: '#d95300', fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                         {course.category}
                       </span>
-                      <span style={pillStyle}>{course.accreditation}</span>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        {isOwned && (
+                          <span className="fx-owned-badge active">
+                            <span className="dot" aria-hidden="true" />
+                            Owned
+                          </span>
+                        )}
+                        {isExpired && (
+                          <span className="fx-owned-badge expired">
+                            <span className="dot" aria-hidden="true" />
+                            Expired
+                          </span>
+                        )}
+                        <span style={pillStyle}>{course.accreditation}</span>
+                      </div>
                     </div>
 
                     <Link to={`/courses/${course.slug}`} style={{ textDecoration: 'none' }}>
@@ -394,9 +537,9 @@ export const Courses: React.FC = () => {
                     </span>
                     <Link
                       to={`/courses/${course.slug}`}
-                      style={{ color: '#d95300', fontSize: '0.9rem', fontWeight: 600, textDecoration: 'none' }}
+                      style={{ color: isOwned ? '#166534' : '#d95300', fontSize: '0.9rem', fontWeight: 600, textDecoration: 'none' }}
                     >
-                      View details →
+                      {isOwned ? 'Continue →' : 'View details →'}
                     </Link>
                   </div>
                 </div>

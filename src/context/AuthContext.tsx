@@ -5,8 +5,10 @@
 //
 // - Context object + type live in ./authContextValue.ts
 // - Hooks live in ./authHooks.ts
-// - This file exports ONLY the component, so Vite Fast Refresh stays happy
-//   (no more "only-export-components" warning).
+// - This file exports ONLY the component, so Vite Fast Refresh stays happy.
+//
+// 🔌 AWS: Every method here calls a function in services/api.ts. When you
+//         wire up Cognito, only those functions change — this file doesn't.
 // ============================================================================
 
 import React, {
@@ -28,6 +30,8 @@ import type {
   MfaChallenge,
   MfaMethod,
   AuthSessionWithTokens,
+  SignupCredentials,
+  SocialProvider,
 } from '../types/auth.types';
 
 // ---------------------------------------------------------------------------
@@ -37,10 +41,7 @@ import type {
 //    page refresh during development.
 //
 // 🔌 AWS: In production, DO NOT store the access token in localStorage.
-//         XSS can steal it. Use one of:
-//           - httpOnly cookies set by your backend
-//           - AWS Amplify's secure storage (handles this for you)
-//           - In-memory only + refresh on every page load
+//         XSS can steal it. Use Amplify's secure storage instead.
 // ---------------------------------------------------------------------------
 
 const TOKEN_KEY = 'flitedux_exam_token';
@@ -80,6 +81,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const [session, setSession] = useState<AuthSessionWithTokens | null>(null);
   const [state, setState] = useState<AuthState>('unauthenticated');
   const [pendingMfa, setPendingMfa] = useState<MfaChallenge | null>(null);
+  const [pendingSignupEmail, setPendingSignupEmail] = useState<string | null>(
+    null,
+  );
+  const [pendingResetEmail, setPendingResetEmail] = useState<string | null>(
+    null,
+  );
   const [error, setError] = useState<AuthError | null>(null);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
 
@@ -130,6 +137,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   // -------------------------------------------------------------------------
+  // HELPER — apply a successful session
+  // -------------------------------------------------------------------------
+  const applySession = useCallback((s: AuthSessionWithTokens) => {
+    setUser(s.user);
+    setSession(s);
+    writeStoredToken(s.token);
+    setPendingMfa(null);
+    setPendingSignupEmail(null);
+    setPendingResetEmail(null);
+    setError(null);
+    setState('authenticated');
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // HELPER — set a structured error
+  // -------------------------------------------------------------------------
+  const setAuthError = useCallback((code: string, message?: string) => {
+    const c = code as AuthError['code'];
+    setError({
+      code: c,
+      message: message ?? api.authErrorMessage(c),
+    });
+  }, []);
+
+  // -------------------------------------------------------------------------
   // LOGIN — step 1
   // -------------------------------------------------------------------------
   const login = useCallback(
@@ -141,11 +173,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       if (!mountedRef.current) return;
 
       if (!result.ok) {
-        setError({
-          code: result.error.code as AuthError['code'],
-          message: api.authErrorMessage(result.error.code as never),
-          raw: result.error,
-        });
+        setAuthError(result.error.code, result.error.message);
         setState('error');
         return;
       }
@@ -156,14 +184,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         return;
       }
 
-      const s = result.data.session;
-      setUser(s.user);
-      setSession(s);
-      writeStoredToken(s.token);
-      setPendingMfa(null);
-      setState('authenticated');
+      applySession(result.data.session);
     },
-    [],
+    [applySession, setAuthError],
   );
 
   // -------------------------------------------------------------------------
@@ -172,10 +195,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const verifyMfa = useCallback(
     async (code: string, trustDevice = false) => {
       if (!pendingMfa) {
-        setError({
-          code: 'unknown',
-          message: 'No MFA challenge in progress. Please start over.',
-        });
+        setAuthError(
+          'unknown',
+          'No MFA challenge in progress. Please start over.',
+        );
         setState('error');
         return;
       }
@@ -192,12 +215,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       if (!mountedRef.current) return;
 
       if (!result.ok) {
-        const errCode = result.error.code as AuthError['code'];
-        setError({
-          code: errCode,
-          message: api.authErrorMessage(errCode),
-          raw: result.error,
-        });
+        const errCode = result.error.code;
+        setAuthError(errCode, result.error.message);
 
         if (errCode === 'mfa-expired' || errCode === 'too-many-attempts') {
           setPendingMfa(null);
@@ -208,14 +227,179 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         return;
       }
 
-      const s = result.data;
-      setUser(s.user);
-      setSession(s);
-      writeStoredToken(s.token);
-      setPendingMfa(null);
-      setState('authenticated');
+      applySession(result.data);
     },
-    [pendingMfa],
+    [pendingMfa, applySession, setAuthError],
+  );
+
+    // -------------------------------------------------------------------------
+  // SIGNUP — step 1: create the account
+  // -------------------------------------------------------------------------
+  const signup = useCallback(
+    async (credentials: SignupCredentials) => {
+      setError(null);
+      setState('authenticating');
+
+      const result = await api.signup(credentials);
+      if (!mountedRef.current) return;
+
+      if (!result.ok) {
+        setAuthError(result.error.code, result.error.message);
+        setState('error');
+        return;
+      }
+
+      // Account created — Cognito has sent a verification email.
+      setPendingSignupEmail(credentials.email);
+      setState('awaiting-email-verification');
+    },
+    [setAuthError],
+  );
+
+  // -------------------------------------------------------------------------
+  // SIGNUP — step 2: confirm the verification code
+  // -------------------------------------------------------------------------
+  const confirmSignup = useCallback(
+    async (code: string) => {
+      if (!pendingSignupEmail) {
+        setAuthError(
+          'unknown',
+          'No signup in progress. Please start over.',
+        );
+        setState('error');
+        return;
+      }
+
+      setError(null);
+      setState('authenticating');
+
+      const result = await api.confirmSignup({
+        email: pendingSignupEmail,
+        code,
+      });
+      if (!mountedRef.current) return;
+
+      if (!result.ok) {
+        const errCode = result.error.code;
+        setAuthError(errCode, result.error.message);
+
+        // Keep them on the verification screen if the code was wrong.
+        if (errCode === 'mfa-expired' || errCode === 'too-many-attempts') {
+          setPendingSignupEmail(null);
+          setState('error');
+        } else {
+          setState('awaiting-email-verification');
+        }
+        return;
+      }
+
+      // Account is now verified — the mock/real backend may or may not
+      // log the user in directly. Assume it does:
+      applySession(result.data);
+    },
+    [pendingSignupEmail, applySession, setAuthError],
+  );
+
+  // -------------------------------------------------------------------------
+  // SIGNUP — resend the verification code
+  // -------------------------------------------------------------------------
+  const resendSignupCode = useCallback(async () => {
+    if (!pendingSignupEmail) return;
+    setError(null);
+    const result = await api.resendSignupCode({ email: pendingSignupEmail });
+    if (!mountedRef.current) return;
+    if (!result.ok) {
+      setAuthError(result.error.code, result.error.message);
+    }
+  }, [pendingSignupEmail, setAuthError]);
+
+  // -------------------------------------------------------------------------
+  // PASSWORD RESET — step 1: request the reset email
+  // -------------------------------------------------------------------------
+  const requestPasswordReset = useCallback(
+    async (email: string) => {
+      setError(null);
+      setState('authenticating');
+
+      const result = await api.requestPasswordReset({ email });
+      if (!mountedRef.current) return;
+
+      if (!result.ok) {
+        setAuthError(result.error.code, result.error.message);
+        setState('error');
+        return;
+      }
+
+      setPendingResetEmail(email);
+      setState('awaiting-password-reset');
+    },
+    [setAuthError],
+  );
+
+  // -------------------------------------------------------------------------
+  // PASSWORD RESET — step 2: submit code + new password
+  // -------------------------------------------------------------------------
+  const confirmPasswordReset = useCallback(
+    async (code: string, newPassword: string) => {
+      if (!pendingResetEmail) {
+        setAuthError(
+          'unknown',
+          'No password reset in progress. Please start over.',
+        );
+        setState('error');
+        return;
+      }
+
+      setError(null);
+      setState('authenticating');
+
+      const result = await api.confirmPasswordReset({
+        email: pendingResetEmail,
+        code,
+        newPassword,
+      });
+      if (!mountedRef.current) return;
+
+      if (!result.ok) {
+        setAuthError(result.error.code, result.error.message);
+        setState('awaiting-password-reset');
+        return;
+      }
+
+      // Reset successful — return to login.
+      setPendingResetEmail(null);
+      setState('unauthenticated');
+    },
+    [pendingResetEmail, setAuthError],
+  );
+
+  // -------------------------------------------------------------------------
+  // SOCIAL LOGIN
+  //
+  // In dev, this simulates a successful OAuth redirect and logs the user in
+  // as a dev user for that provider.
+  //
+  // 🔌 AWS: In production, this redirects the browser to the Cognito
+  //         Hosted UI, which handles the OAuth flow with Google/Apple/
+  //         Facebook and redirects back to /exam/auth/callback.
+  // -------------------------------------------------------------------------
+  const loginWithSocial = useCallback(
+    async (provider: SocialProvider) => {
+      setError(null);
+      setState('authenticating');
+
+      const result = await api.loginWithSocial(provider);
+      if (!mountedRef.current) return;
+
+      if (!result.ok) {
+        setAuthError(result.error.code, result.error.message);
+        setState('error');
+        return;
+      }
+
+      applySession(result.data);
+    },
+    [applySession, setAuthError],
   );
 
   // -------------------------------------------------------------------------
@@ -227,6 +411,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     setUser(null);
     setSession(null);
     setPendingMfa(null);
+    setPendingSignupEmail(null);
+    setPendingResetEmail(null);
     setError(null);
     setState('unauthenticated');
   }, []);
@@ -241,12 +427,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const resetAuthFlow = useCallback(() => {
     setPendingMfa(null);
+    setPendingSignupEmail(null);
+    setPendingResetEmail(null);
     setError(null);
     setState('unauthenticated');
   }, []);
 
   // -------------------------------------------------------------------------
-  // CONTEXT VALUE (memoised so consumers don't re-render unnecessarily)
+  // CONTEXT VALUE
   // -------------------------------------------------------------------------
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -254,10 +442,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       session,
       state,
       pendingMfa,
+      pendingSignupEmail,
+      pendingResetEmail,
       error,
       isBootstrapping,
       login,
       verifyMfa,
+      signup,
+      confirmSignup,
+      resendSignupCode,
+      requestPasswordReset,
+      confirmPasswordReset,
+      loginWithSocial,
       logout,
       clearError,
       resetAuthFlow,
@@ -267,10 +463,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       session,
       state,
       pendingMfa,
+      pendingSignupEmail,
+      pendingResetEmail,
       error,
       isBootstrapping,
       login,
       verifyMfa,
+      signup,
+      confirmSignup,
+      resendSignupCode,
+      requestPasswordReset,
+      confirmPasswordReset,
+      loginWithSocial,
       logout,
       clearError,
       resetAuthFlow,

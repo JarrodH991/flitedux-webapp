@@ -1,29 +1,44 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { CartProvider } from './context/CartContext';
-import { AuthProvider } from './context/AuthContext'; // <-- NEW
+import { AuthProvider } from './context/AuthContext';
 import { Navbar } from './layouts/Navbar';
 import { Footer } from './layouts/Footer';
+
+// ==================== PUBLIC PAGES ====================
 import { Home } from './pages/Home';
 import { Courses } from './pages/Courses';
 import { CourseDetail } from './pages/CourseDetails';
 import { Gallery } from './pages/Gallery';
-import MyFlitedux from './pages/MyFlitedux';
 import { About } from './pages/About';
 import { FAQ } from './pages/FAQ';
 import { ContactUs } from './pages/ContactUs';
+
+// ==================== COURSE LEARNING ====================
+import { CourseLearning } from './pages/courses/CourseLearning';
+
+// ==================== E-COMMERCE ====================
 import Cart from './pages/Cart';
 import Checkout from './pages/Checkout';
 import CheckoutSuccess from './pages/CheckoutSuccess';
 
-// --- EXAM SYSTEM ---
-import { ExamAuth } from './pages/exam/ExamAuth';
+// ==================== AUTH ====================
+import { Login } from './pages/auth/Login';
+import { Signup } from './pages/auth/Signup';
+import { ForgotPassword } from './pages/auth/ForgotPassword';
+import { ResetPassword } from './pages/auth/ResetPassword';
+import { SocialCallback } from './pages/auth/SocialCallback';
+import { ProtectedRoute } from './pages/auth/ProtectedRoute';
+
+// ==================== USER DASHBOARD ====================
+import { Dashboard } from './pages/dashboard/Dashboard';
+
+// ==================== EXAM SYSTEM ====================
 import { ExamDashboard } from './pages/exam/ExamDashboard';
 import { ExamStart } from './pages/exam/ExamStart';
 import { ExamRoom } from './pages/exam/ExamRoom';
 import { ExamResults } from './pages/exam/ExamResults';
-import { ProtectedRoute } from './pages/exam/ProtectedRoute';
 
-// --- EXAM ADMIN ---
+// ==================== EXAM ADMIN ====================
 import { SubjectManager } from './pages/exam/admin/SubjectManager';
 import { QuestionBank } from './pages/exam/admin/QuestionBank';
 import { ExamBuilder } from './pages/exam/admin/ExamBuilder';
@@ -38,42 +53,69 @@ function App() {
       <AuthProvider>
         <Router>
           <ScrollToTop />
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            minHeight: '100vh',
-            width: '100vw',
-            maxWidth: '100%',
-            margin: 0,
-            padding: 0,
-            paddingTop: '60px',
-            fontFamily: 'sans-serif',
-            backgroundColor: '#f8fafc',
-          }}>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              minHeight: '100vh',
+              width: '100vw',
+              maxWidth: '100%',
+              margin: 0,
+              padding: 0,
+              paddingTop: '60px',
+              fontFamily: 'sans-serif',
+              backgroundColor: '#f8fafc',
+            }}
+          >
             <Navbar />
 
             <div style={{ flex: 1, width: '100%' }}>
               <Routes>
-                {/* ================= PUBLIC ROUTES ================= */}
+                {/* ==================== PUBLIC ==================== */}
                 <Route path="/" element={<Home />} />
                 <Route path="/courses" element={<Courses />} />
                 <Route path="/courses/:slug" element={<CourseDetail />} />
                 <Route path="/gallery" element={<Gallery />} />
-                <Route path="/myflitedux" element={<MyFlitedux />} />
                 <Route path="/about" element={<About />} />
                 <Route path="/faq" element={<FAQ />} />
                 <Route path="/contact" element={<ContactUs />} />
 
-                {/* ================= E-COMMERCE ================= */}
+                {/* ==================== COURSE LEARNING ==================== */}
+                {/* Requires an active enrolment — ProtectedRoute only checks */}
+                {/* that the user is signed in; the page itself checks the */}
+                {/* enrolment and redirects to the course page if missing. */}
+                <Route
+                  path="/courses/:slug/learn"
+                  element={
+                    <ProtectedRoute>
+                      <CourseLearning />
+                    </ProtectedRoute>
+                  }
+                />
+
+                {/* ==================== E-COMMERCE ==================== */}
                 <Route path="/cart" element={<Cart />} />
                 <Route path="/checkout" element={<Checkout />} />
                 <Route path="/checkout-success" element={<CheckoutSuccess />} />
 
-                {/* ================= EXAM SYSTEM ================= */}
-                {/* Auth is public — you have to be able to log in */}
-                <Route path="/exam/auth" element={<ExamAuth />} />
+                {/* ==================== AUTH ==================== */}
+                <Route path="/login" element={<Login />} />
+                <Route path="/signup" element={<Signup />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
+                <Route path="/auth/callback" element={<SocialCallback />} />
 
-                {/* Learner routes — require any authenticated user */}
+                {/* ==================== DASHBOARD ==================== */}
+                <Route
+                  path="/dashboard"
+                  element={
+                    <ProtectedRoute>
+                      <Dashboard />
+                    </ProtectedRoute>
+                  }
+                />
+
+                {/* ==================== EXAM SYSTEM ==================== */}
                 <Route
                   path="/exam/dashboard"
                   element={
@@ -107,7 +149,7 @@ function App() {
                   }
                 />
 
-                {/* ================= EXAM ADMIN ================= */}
+                {/* ==================== EXAM ADMIN ==================== */}
                 <Route
                   path="/exam/admin/subjects"
                   element={

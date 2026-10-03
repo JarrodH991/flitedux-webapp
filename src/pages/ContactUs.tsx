@@ -54,29 +54,71 @@ export const ContactUs: React.FC = () => {
 
             {/* Johannesburg Office */}
             <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '16px' }}>
-              <h3 style={{ color: '#000000', fontSize: '1.1rem', marginBottom: '8px' }}>Johannesburg Head Office</h3>
+              <h3 style={{ color: '#000000', fontSize: '1.1rem', marginBottom: '8px' }}>
+                Johannesburg Head Office
+              </h3>
               <p style={{ color: '#475569', lineHeight: '1.5', margin: 0, fontSize: '0.95rem' }}>
                 Denel North, Building R01, Second Floor<br />
                 Atlas Road, Bonaero Park
+              </p>
+              <p
+                style={{
+                  color: '#d95300',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  margin: '8px 0 0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <span aria-hidden="true">📍</span>
+                Onsite training facility — see map below
               </p>
             </div>
 
             {/* Durban Office */}
             <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '16px' }}>
-              <h3 style={{ color: '#000000', fontSize: '1.1rem', marginBottom: '8px' }}>Durban Office</h3>
+              <h3 style={{ color: '#000000', fontSize: '1.1rem', marginBottom: '8px' }}>
+                Durban Office
+              </h3>
               <p style={{ color: '#475569', lineHeight: '1.5', margin: 0, fontSize: '0.95rem' }}>
                 Unit A7, Glen Murray Business Park<br />
                 Moreland Drive
+              </p>
+              <p
+                style={{
+                  color: '#94a3b8',
+                  fontSize: '0.82rem',
+                  fontStyle: 'italic',
+                  margin: '8px 0 0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <span aria-hidden="true">📬</span>
+                Correspondence address only — training is delivered at our
+                Johannesburg facility
               </p>
             </div>
 
             {/* Direct Contacts */}
             <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '16px' }}>
-              <h3 style={{ color: '#1e293b', fontSize: '1.1rem', marginBottom: '8px' }}>Direct Contacts</h3>
+              <h3 style={{ color: '#1e293b', fontSize: '1.1rem', marginBottom: '8px' }}>
+                Direct Contacts
+              </h3>
               <p style={{ color: '#475569', lineHeight: '1.6', margin: 0, fontSize: '0.95rem' }}>
                 <strong>Phone / Fax:</strong> +27 (0)11 397 8428<br />
-                <strong>Email:</strong> <a href="mailto:info@flitedux.co.za" style={{ color: '#2563eb', textDecoration: 'none' }}>info@flitedux.co.za</a><br />
-                <strong>GPS Co-ordinates:</strong> S26°9.74’, E28°13.30’
+                <strong>Email:</strong>{' '}
+                <a
+                  href="mailto:info@flitedux.co.za"
+                  style={{ color: '#2563eb', textDecoration: 'none' }}
+                >
+                  info@flitedux.co.za
+                </a>
+                <br />
+                <strong>GPS Co-ordinates:</strong> S26°9.74', E28°13.30'
               </p>
             </div>
           </div>
@@ -196,6 +238,109 @@ export const ContactUs: React.FC = () => {
             )}
           </div>
 
+        </div>
+      </section>
+
+      {/* ============================================================ */}
+      {/* Find Us — Google Map Section */}
+      {/* ============================================================ */}
+      <section
+        style={{
+          maxWidth: '1000px',
+          margin: '60px auto 0',
+          padding: '0 20px',
+        }}
+      >
+        <div style={{ marginBottom: '24px', textAlign: 'center' }}>
+          <h2
+            style={{
+              color: '#0f172a',
+              fontSize: '1.6rem',
+              fontWeight: 700,
+              marginBottom: '8px',
+            }}
+          >
+            Find Us
+          </h2>
+          <p style={{ color: '#64748b', fontSize: '0.95rem', margin: 0 }}>
+            Visit our Johannesburg Head Office — Denel North, Building R01,
+            Atlas Road, Bonaero Park.
+          </p>
+        </div>
+
+        {/* Map card */}
+        <div
+          style={{
+            backgroundColor: '#ffffff',
+            padding: '12px',
+            borderRadius: '16px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.05)',
+            border: '1px solid #e2e8f0',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              position: 'relative',
+              width: '100%',
+              aspectRatio: '16 / 10',
+              borderRadius: '10px',
+              overflow: 'hidden',
+              backgroundColor: '#e2e8f0',
+            }}
+          >
+            <iframe
+              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3581.580764314247!2d28.267276799999994!3d-26.145208999999994!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x1e9516a71334dd39%3A0x4b55259ea957dacb!2sFlitedux%20Aviation%20Training!5e0!3m2!1sen!2sus!4v1791063435154!5m2!1sen!2sus"
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                border: 0,
+              }}
+              allowFullScreen
+              loading="lazy"
+              referrerPolicy="strict-origin-when-cross-origin"
+              title="Flitedux Aviation Training location map"
+            />
+          </div>
+
+          {/* Open in Google Maps link */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              paddingTop: '14px',
+              paddingBottom: '4px',
+            }}
+          >
+            <a
+              href="https://www.google.com/maps/search/?api=1&query=Flitedux+Aviation+Training+Bonaero+Park"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                color: '#d95300',
+                fontWeight: 600,
+                fontSize: '0.9rem',
+                textDecoration: 'none',
+                padding: '8px 14px',
+                borderRadius: '8px',
+                transition: 'background-color 0.15s ease',
+              }}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.backgroundColor = '#fff7ed')
+              }
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.backgroundColor = 'transparent')
+              }
+            >
+              <span aria-hidden="true">📍</span>
+              Open in Google Maps →
+            </a>
+          </div>
         </div>
       </section>
 

@@ -41,7 +41,7 @@ export interface LoginCredentials {
 }
 
 /**
- * What the user submits on the signup form (if you enable self-signup).
+ * What the user submits on the signup form.
  *
  * 🔌 AWS: Cognito SignUp. Email verification happens via a code sent to
  *         the user's inbox; you'll add a "verify email" step after signup.
@@ -53,6 +53,19 @@ export interface SignupCredentials {
   /** Must accept terms & privacy. */
   acceptedTerms: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Social providers
+// ---------------------------------------------------------------------------
+
+/**
+ * Which third-party identity providers we support.
+ *
+ * 🔌 AWS: Each of these is a Cognito Identity Provider. When you configure
+ *         them in the Cognito console, you get a client ID + secret for
+ *         each, and Cognito handles the OAuth flow.
+ */
+export type SocialProvider = 'google' | 'apple' | 'facebook';
 
 // ---------------------------------------------------------------------------
 // MFA
@@ -72,11 +85,13 @@ export type MfaMethod = 'totp' | 'sms' | 'email';
  * knows what to render.
  */
 export type AuthState =
-  | 'unauthenticated'      // no credentials submitted yet
-  | 'authenticating'       // verifying email/password
-  | 'awaiting-mfa'         // password OK, waiting for MFA code
-  | 'authenticated'        // fully logged in
-  | 'error';               // last attempt failed — see AuthError
+  | 'unauthenticated'
+  | 'authenticating'
+  | 'awaiting-mfa'
+  | 'awaiting-email-verification'
+  | 'awaiting-password-reset'
+  | 'authenticated'
+  | 'error';
 
 /**
  * When a user submits credentials and the server responds "I need MFA",
@@ -106,7 +121,7 @@ export interface MfaChallenge {
 export interface MfaResponse {
   userId: string;
   method: MfaMethod;
-  code: string;             // 6-digit TOTP or SMS code
+  code: string;
   /**
    * Set to true if the user wants this device to skip MFA next time.
    * Cognito supports this via device tracking.
@@ -133,9 +148,9 @@ export interface MfaResponse {
  */
 export interface AuthSessionWithTokens {
   user: User;
-  token: string;                // JWT access token
-  refreshToken: string;         // longer-lived refresh token
-  expiresAt: string;            // ISO 8601 — when the access token expires
+  token: string;
+  refreshToken: string;
+  expiresAt: string;
   mfaVerified: boolean;
   /**
    * Which MFA method was used to establish this session. Needed for
@@ -184,12 +199,12 @@ export type AuthErrorCode =
  */
 export interface AuthError {
   code: AuthErrorCode;
-  message: string;              // user-friendly
-  raw?: unknown;                // the original error object, for logs only
+  message: string;
+  raw?: unknown;
 }
 
 // ---------------------------------------------------------------------------
-// Password reset (needed for a complete auth flow)
+// Password reset
 // ---------------------------------------------------------------------------
 
 /**

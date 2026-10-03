@@ -36,8 +36,8 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 
-import { useAuth } from '../../context/authHooks';
-import type { UserRole } from '../../types/exam.types';
+import { useAuth } from '../../context/authHooks';   // same — 2 levels up
+import type { UserRole } from '../../types/exam.types';  // same
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -102,7 +102,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   if (state !== 'authenticated' || !user) {
     return (
       <Navigate
-        to="/exam/auth"
+        to="/login"
         state={{ from: location.pathname + location.search }}
         replace
       />

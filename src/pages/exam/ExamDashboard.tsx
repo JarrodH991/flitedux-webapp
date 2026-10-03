@@ -374,7 +374,7 @@ export const ExamDashboard: React.FC = () => {
   // -------------------------------------------------------------------------
   const handleLogout = async () => {
     await logout();
-    navigate('/exam/auth', { replace: true });
+    navigate('/login', { replace: true });
   };
 
   // -------------------------------------------------------------------------
