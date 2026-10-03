@@ -73,6 +73,7 @@ import type {
   PasswordResetConfirm,
 } from '../types/auth.types';
 
+
 // ---------------------------------------------------------------------------
 // DEV DATA IMPORTS
 // ---------------------------------------------------------------------------
@@ -114,13 +115,14 @@ import {
   getActiveExams,
 } from '../data/dev/devExams';
 
+
 import {
   devAttempts,
   getAttemptById,
   getAttemptsForUser,
   getAttemptsForExam,
-  getAttemptsForSubject,
   getLatestAttemptForUserExam,
+  persistDevAttempts,
 } from '../data/dev/devAttempts';
 
 // ---------------------------------------------------------------------------
@@ -863,6 +865,11 @@ export async function submitAttempt(
   submittedBy: 'candidate' | 'server' = 'candidate',
 ): Promise<ApiResult<Attempt>> {
   try {
+    console.log(
+      '[api.submitAttempt] called — attempt:', attemptId,
+      'by:', submittedBy,
+      '\nstack:', new Error().stack,
+    );
     await delay(null, 600);
     const attempt = getAttemptById(attemptId);
     if (!attempt) return fail('attempt-not-found', 'Attempt not found.');

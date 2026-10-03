@@ -469,6 +469,7 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
     view,
     isLoading,
     error,
+    expired,
     integrityCompromised,
     maxTabSwitches,
     tabSwitchCount,
@@ -498,7 +499,7 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
   // Refs
   const saveResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initializedRef = useRef(false);
-
+const lastProctorEventRef = useRef<{ type: string; time: number } | null>(null);
   // -------------------------------------------------------------------------
   // INITIALIZE on mount
   // -------------------------------------------------------------------------
@@ -523,34 +524,47 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
   }, []);
 
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      const isFull = Boolean(document.fullscreenElement);
-      setFullscreenActive(isFull);
-      if (!isFull && view === 'question') {
-        void logProctorEvent('fullscreen-exit');
-        setShowTabWarning(true);
+  const handleFullscreenChange = () => {
+    const isFull = Boolean(document.fullscreenElement);
+    setFullscreenActive(isFull);
+    if (!isFull && view === 'question') {
+      const now = Date.now();
+      const last = lastProctorEventRef.current;
+      if (last && last.type === 'fullscreen-exit' && now - last.time < 500) {
+        return;
       }
-    };
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    handleFullscreenChange();
-    return () =>
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }, [view, logProctorEvent]);
+      lastProctorEventRef.current = { type: 'fullscreen-exit', time: now };
+      void logProctorEvent('fullscreen-exit');
+      setShowTabWarning(true);
+    }
+  };
+  document.addEventListener('fullscreenchange', handleFullscreenChange);
+  handleFullscreenChange();
+  return () =>
+    document.removeEventListener('fullscreenchange', handleFullscreenChange);
+}, [view, logProctorEvent]);
 
   // -------------------------------------------------------------------------
   // TAB VISIBILITY
   // -------------------------------------------------------------------------
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.hidden && view === 'question') {
-        void logProctorEvent('tab-switch');
-        setShowTabWarning(true);
+ useEffect(() => {
+  const handleVisibility = () => {
+    if (document.hidden && view === 'question') {
+      // Dedupe: ignore if we logged a tab-switch in the last 500ms
+      const now = Date.now();
+      const last = lastProctorEventRef.current;
+      if (last && last.type === 'tab-switch' && now - last.time < 500) {
+        return;
       }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () =>
-      document.removeEventListener('visibilitychange', handleVisibility);
-  }, [view, logProctorEvent]);
+      lastProctorEventRef.current = { type: 'tab-switch', time: now };
+      void logProctorEvent('tab-switch');
+      setShowTabWarning(true);
+    }
+  };
+  document.addEventListener('visibilitychange', handleVisibility);
+  return () =>
+    document.removeEventListener('visibilitychange', handleVisibility);
+}, [view, logProctorEvent]);
 
   // -------------------------------------------------------------------------
   // BEFOREUNLOAD
@@ -710,21 +724,60 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
   // RENDER — ERROR
   // -------------------------------------------------------------------------
   if (error) {
-    return (
-      <div className="fx-room-page">
-        <style>{pageCss}</style>
-        <div className="fx-room-inner">
-          <div className="fx-room-error">
-            <h2>Could not load the exam</h2>
-            <p>{error}</p>
-            <a href="/exam/dashboard" className="fx-room-error-btn">
-              Back to dashboard
-            </a>
-          </div>
+  return (
+    <div className="fx-room-page">
+      <style>{pageCss}</style>
+      <div className="fx-room-inner">
+        <div className="fx-room-error">
+          {expired ? (
+            <>
+              <h2>This attempt has expired</h2>
+              <p>
+                The time limit for this attempt has passed. Your answers were
+                saved and the attempt may have been auto-submitted. If you're
+                seeing this in error, contact your training coordinator.
+              </p>
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 10,
+                  justifyContent: 'center',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <a
+                  href={`/exam/results/${attemptId}`}
+                  className="fx-room-error-btn"
+                >
+                  View results
+                </a>
+                <a
+                  href="/exam/dashboard"
+                  className="fx-room-error-btn"
+                  style={{
+                    background: '#ffffff',
+                    color: '#334155',
+                    border: '1px solid #cbd5e1',
+                  }}
+                >
+                  Back to dashboard
+                </a>
+              </div>
+            </>
+          ) : (
+            <>
+              <h2>Could not load the exam</h2>
+              <p>{error}</p>
+              <a href="/exam/dashboard" className="fx-room-error-btn">
+                Back to dashboard
+              </a>
+            </>
+          )}
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   // -------------------------------------------------------------------------
   // RENDER — RULES SCREEN

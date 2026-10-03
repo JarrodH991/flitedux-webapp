@@ -54,8 +54,10 @@ export interface ExamContextValue {
   enforceFullscreen: boolean;
 
   // ---- Loading ----
+    // ---- Loading ----
   isLoading: boolean;
   error: string | null;
+  expired: boolean;      // ← NEW: true when the loaded attempt's deadline passed
 
   // ---- Actions ----
   /** Called once when the exam room mounts — loads attempt + questions. */

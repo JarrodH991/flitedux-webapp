@@ -523,3 +523,61 @@ export function getAttemptSummaryForUser(userId: string): {
         : 0,
   };
 }
+
+// ---------------------------------------------------------------------------
+// DEV-ONLY PERSISTENCE
+//
+// Save attempts to localStorage so they survive a page reload during
+// development. Without this, refreshing the browser wipes your in-progress
+// attempts, which makes testing the resume flow impossible.
+//
+// 🔌 AWS: In production, this is unnecessary — DynamoDB persists across
+//         everything. Delete this block when you wire up the real backend.
+// ---------------------------------------------------------------------------
+
+const DEV_ATTEMPTS_STORAGE_KEY = 'flitedux_dev_attempts_v1';
+
+function loadPersistedAttempts(): Attempt[] | null {
+  try {
+    const raw = localStorage.getItem(DEV_ATTEMPTS_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as Attempt[];
+  } catch {
+    return null;
+  }
+}
+
+function persistAttempts(attempts: Attempt[]): void {
+  try {
+    localStorage.setItem(DEV_ATTEMPTS_STORAGE_KEY, JSON.stringify(attempts));
+  } catch {
+    /* storage full or disabled — ignore */
+  }
+}
+
+// Hydrate from localStorage on module load, falling back to the seed data
+const persisted = loadPersistedAttempts();
+if (persisted && persisted.length > 0) {
+  devAttempts.length = 0;
+  devAttempts.push(...persisted);
+}
+
+// Expose a function to persist after mutations
+export function persistDevAttempts(): void {
+  persistAttempts(devAttempts);
+}
+
+/**
+ * Dev-only reset. Call this from the browser console if you need to
+ * wipe the persisted attempts and go back to the seed data.
+ *
+ *   import('/src/data/dev/devAttempts.ts').then(m => m.resetDevAttempts())
+ */
+export function resetDevAttempts(): void {
+  try {
+    localStorage.removeItem(DEV_ATTEMPTS_STORAGE_KEY);
+    window.location.reload();
+  } catch {
+    /* ignore */
+  }
+}

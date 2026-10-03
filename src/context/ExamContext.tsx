@@ -32,6 +32,13 @@ import type {
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 const TIMER_TICK_MS = 1000;
+const TIMER_GRACE_PERIOD_MS = 3000;
+
+// Set to false to silence all debug logging from this file.
+const DEBUG = true;
+function dbg(...args: unknown[]) {
+  if (DEBUG) console.log('[ExamContext]', ...args);
+}
 
 export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -55,6 +62,7 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({
   // ---- Loading / error ----
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expired, setExpired] = useState(false);
 
   // ---- Refs ----
   const autosaveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
@@ -64,43 +72,48 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({
   const submittingRef = useRef(false);
   const questionsRef = useRef<QuestionForCandidate[]>([]);
   const attemptRef = useRef<Attempt | null>(null);
+  const integrityTriggeredRef = useRef(false);
 
+  // Keep refs in sync with state
   useEffect(() => {
     questionsRef.current = questions;
   }, [questions]);
+
   useEffect(() => {
     attemptRef.current = attempt;
   }, [attempt]);
 
+  // Cleanup on unmount
   useEffect(() => {
-  mountedRef.current = true;
+    mountedRef.current = true;
+    const timers = autosaveTimers.current;
+    return () => {
+      mountedRef.current = false;
+      timers.forEach((t) => clearTimeout(t));
+      timers.clear();
+    };
+  }, []);
 
-  // Capture the ref's current value once, so the cleanup function uses
-  // the exact same Map instance even if the ref is later reassigned
-  // (it isn't in our case, but this satisfies the linter and is the
-  // correct pattern).
-  const timers = autosaveTimers.current;
-
-  return () => {
-    mountedRef.current = false;
-    timers.forEach((t) => clearTimeout(t));
-    timers.clear();
-  };
-}, []);
-
+  // ---- Rules-derived state (populated during initialize) ----
   const [maxTabSwitchesState, setMaxTabSwitchesState] = useState(3);
   const [enforceFullscreenState, setEnforceFullscreenState] = useState(true);
 
   const isTimeUp = secondsRemaining <= 0 && deadlineAt !== null;
-  const integrityCompromised = tabSwitchCount > maxTabSwitchesState;
+
+  // Integrity is compromised only if there IS a limit (max > 0) and we've
+  // exceeded it. If max is 0, the exam has no tab-switch limit.
+  const integrityCompromised =
+    maxTabSwitchesState > 0 && tabSwitchCount > maxTabSwitchesState;
 
   // -------------------------------------------------------------------------
-  // INITIALIZE
+  // INITIALIZE — load the attempt, questions, and exam rules
   // -------------------------------------------------------------------------
   const initialize = useCallback(
     async (attemptId: string, _userId: string) => {
+      dbg('initialize called for attempt:', attemptId);
       setIsLoading(true);
       setError(null);
+      setExpired(false);
 
       const attemptRes = await api.getAttempt(attemptId);
       if (!mountedRef.current) return;
@@ -113,6 +126,15 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       const loadedAttempt = attemptRes.data;
+      dbg(
+        'attempt loaded:',
+        loadedAttempt.id,
+        'status:',
+        loadedAttempt.status,
+        'deadline:',
+        loadedAttempt.deadlineAt,
+      );
+
       setAttempt(loadedAttempt);
       setDeadlineAt(loadedAttempt.deadlineAt);
 
@@ -128,7 +150,9 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({
       if (!mountedRef.current) return;
       if (examRes.ok && examRes.data) {
         setMaxTabSwitchesState(examRes.data.rules.integrity.maxTabSwitches);
-        setEnforceFullscreenState(examRes.data.rules.integrity.enforceFullscreen);
+        setEnforceFullscreenState(
+          examRes.data.rules.integrity.enforceFullscreen,
+        );
       }
 
       const questionsRes = await api.getAttemptQuestions(attemptId);
@@ -140,34 +164,86 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       setQuestions(questionsRes.data);
-      setView('rules');
       setCurrentIndex(0);
+
+      // If the attempt is already submitted (or auto-submitted, or
+      // invalidated), jump straight to the submitted state — the user
+      // should be looking at their results, not the rules screen.
+      if (
+        loadedAttempt.status === 'submitted' ||
+        loadedAttempt.status === 'auto-submitted' ||
+        loadedAttempt.status === 'invalidated'
+      ) {
+        setView('submitted');
+        setIsLoading(false);
+        return;
+      }
+
+      // If the deadline has already passed but the attempt is still
+      // in-progress, mark it as expired. The timer will handle the
+      // auto-submit after its grace period.
+      if (secondsLeft <= 0) {
+        setExpired(true);
+      }
+
+      setView('rules');
       setIsLoading(false);
     },
     [],
   );
 
   // -------------------------------------------------------------------------
-  // TIMER — auto-submits at zero
+  // TIMER — ticks every second, auto-submits at zero (with grace period)
   // -------------------------------------------------------------------------
   useEffect(() => {
     if (!deadlineAt || view === 'submitted') return;
 
+    dbg(
+      'timer mounted — deadlineAt:',
+      deadlineAt,
+      'view:',
+      view,
+      'secondsUntilDeadline:',
+      Math.floor((new Date(deadlineAt).getTime() - Date.now()) / 1000),
+    );
+
+    const mountedAt = Date.now();
+
     const interval = setInterval(() => {
       if (!mountedRef.current) return;
+
       const secondsLeft = Math.max(
         0,
         Math.floor((new Date(deadlineAt).getTime() - Date.now()) / 1000),
       );
       setSecondsRemaining(secondsLeft);
 
-      if (secondsLeft === 0 && !submittingRef.current && attemptRef.current) {
+      const graceElapsed = Date.now() - mountedAt >= TIMER_GRACE_PERIOD_MS;
+
+      // Only auto-submit if:
+      //   - deadline is reached
+      //   - grace period has passed (avoid firing on stale deadlines
+      //     the instant the page loads)
+      //   - we haven't already submitted
+      //   - the attempt is still in-progress
+      if (
+        secondsLeft === 0 &&
+        graceElapsed &&
+        !submittingRef.current &&
+        attemptRef.current &&
+        attemptRef.current.status === 'in-progress'
+      ) {
+        dbg('timer: deadline reached, auto-submitting');
         submittingRef.current = true;
         void (async () => {
-          const res = await api.submitAttempt(attemptRef.current!.id, 'server');
+          const res = await api.submitAttempt(
+            attemptRef.current!.id,
+            'server',
+          );
           if (mountedRef.current && res.ok) {
+            setAttempt(res.data);
             setView('submitted');
-            navigate(`/exam/results/${attemptRef.current!.id}`);
+            navigate(`/exam/results/${res.data.id}`);
           }
         })();
       }
@@ -175,6 +251,32 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({
 
     return () => clearInterval(interval);
   }, [deadlineAt, view, navigate]);
+
+  // -------------------------------------------------------------------------
+  // INTEGRITY AUTO-SUBMIT — when the candidate exceeds the tab-switch limit,
+  // automatically submit the attempt as invalidated. Fires once.
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (
+      integrityCompromised &&
+      !integrityTriggeredRef.current &&
+      !submittingRef.current &&
+      attemptRef.current &&
+      attemptRef.current.status === 'in-progress'
+    ) {
+      integrityTriggeredRef.current = true;
+      dbg('integrity compromised — auto-submitting as invalidated');
+      submittingRef.current = true;
+      void (async () => {
+        const res = await api.submitAttempt(attemptRef.current!.id, 'server');
+        if (mountedRef.current && res.ok) {
+          setAttempt(res.data);
+          setView('submitted');
+          navigate(`/exam/results/${res.data.id}`);
+        }
+      })();
+    }
+  }, [integrityCompromised, navigate]);
 
   // -------------------------------------------------------------------------
   // AUTOSAVE
@@ -295,7 +397,7 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({
   const backToQuestions = useCallback(() => setView('question'), []);
 
   // -------------------------------------------------------------------------
-  // SUBMIT
+  // SUBMIT — called by the user via the review screen
   // -------------------------------------------------------------------------
   const submit = useCallback(async () => {
     if (!attemptRef.current || submittingRef.current) {
@@ -322,24 +424,35 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   // -------------------------------------------------------------------------
-  // PROCTOR EVENTS
+  // PROCTOR EVENTS — increments local counters IMMEDIATELY, fires API async
   // -------------------------------------------------------------------------
   const logProctorEvent = useCallback(
     async (type: ProctorEventType, metadata?: Record<string, unknown>) => {
       if (!attemptRef.current) return;
-      await api.logProctorEvent(attemptRef.current.id, type, metadata);
 
+      // Increment counters FIRST so the UI updates instantly. The API
+      // call is fire-and-forget; we don't wait for it.
       if (type === 'tab-switch') {
-        setTabSwitchCount((c) => c + 1);
+        setTabSwitchCount((c) => {
+          const next = c + 1;
+          dbg('tabSwitchCount:', c, '→', next);
+          return next;
+        });
       } else if (type === 'fullscreen-exit') {
-        setFullscreenExitCount((c) => c + 1);
+        setFullscreenExitCount((c) => {
+          const next = c + 1;
+          dbg('fullscreenExitCount:', c, '→', next);
+          return next;
+        });
       }
+
+      void api.logProctorEvent(attemptRef.current.id, type, metadata);
     },
     [],
   );
 
   // -------------------------------------------------------------------------
-  // ABANDON
+  // ABANDON — leave without submitting
   // -------------------------------------------------------------------------
   const abandon = useCallback(() => {
     autosaveTimers.current.forEach((timer) => clearTimeout(timer));
@@ -366,6 +479,7 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({
       enforceFullscreen: enforceFullscreenState,
       isLoading,
       error,
+      expired,
       initialize,
       goToQuestion,
       nextQuestion,
@@ -394,6 +508,7 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({
       enforceFullscreenState,
       isLoading,
       error,
+      expired,
       initialize,
       goToQuestion,
       nextQuestion,
