@@ -189,6 +189,8 @@ export const Home: React.FC = () => {
     'public/images/slide2.jpg',
     'public/images/slide3.png',
     'public/images/slide5.png',
+    'public/images/slide6.jpg',
+    'public/images/slide7.jpg',
   ];
 
   return (

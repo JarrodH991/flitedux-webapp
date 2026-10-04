@@ -421,6 +421,29 @@ export const DashboardMenu: React.FC<DashboardMenuProps> = ({
     );
   };
 
+  // My Courses is a scroll shortcut, not a route. This handler navigates
+  // to /dashboard (if needed) and then smooth-scrolls to the section.
+  const handleMyCoursesClick = () => {
+    onClose();
+
+    const scrollToSection = () => {
+      const el = document.getElementById('my-courses');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    };
+
+    if (location.pathname === '/dashboard') {
+      // Already on the dashboard — just scroll.
+      setTimeout(scrollToSection, 150);
+    } else {
+      // Navigate first, then wait for the dashboard to mount and data
+      // to load before scrolling.
+      navigate('/dashboard');
+      setTimeout(scrollToSection, 500);
+    }
+  };
+
   // Initials for the user avatar
   const initials = user?.displayName
     ? user.displayName
@@ -535,20 +558,18 @@ export const DashboardMenu: React.FC<DashboardMenuProps> = ({
               <div className="fx-dmenu-section">
                 <p className="fx-dmenu-section-label">My learning</p>
 
-                <Link
-                  to="/courses"
-                  onClick={onClose}
-                  className={`fx-dmenu-row${
-                    isActive('/courses') ? ' active' : ''
-                  }`}
+                {/* My Courses is a scroll shortcut — never highlighted. */}
+                <button
+                  type="button"
+                  onClick={handleMyCoursesClick}
+                  className="fx-dmenu-row"
                 >
                   <span className="fx-dmenu-row-icon" aria-hidden="true">
                     📚
                   </span>
                   <span className="fx-dmenu-row-label">My Courses</span>
-                </Link>
-
-                <Link
+                </button>
+                                <Link
                   to="/exam/dashboard"
                   onClick={onClose}
                   className={`fx-dmenu-row${
@@ -560,18 +581,20 @@ export const DashboardMenu: React.FC<DashboardMenuProps> = ({
                   </span>
                   <span className="fx-dmenu-row-label">My Exams</span>
                 </Link>
-<Link
-  to="/dashboard/certificates"
-  onClick={onClose}
-  className={`fx-dmenu-row${
-    isActive('/dashboard/certificates') ? ' active' : ''
-  }`}
->
-  <span className="fx-dmenu-row-icon" aria-hidden="true">
-    🏆
-  </span>
-  <span className="fx-dmenu-row-label">Certificates</span>
-</Link>
+
+                <Link
+                  to="/dashboard/certificates"
+                  onClick={onClose}
+                  className={`fx-dmenu-row${
+                    isActive('/dashboard/certificates') ? ' active' : ''
+                  }`}
+                >
+                  <span className="fx-dmenu-row-icon" aria-hidden="true">
+                    🏆
+                  </span>
+                  <span className="fx-dmenu-row-label">Certificates</span>
+                </Link>
+
                 <Link
                   to="/gallery"
                   onClick={onClose}

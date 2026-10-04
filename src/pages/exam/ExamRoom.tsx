@@ -226,6 +226,157 @@ body.fx-in-exam .fx-room-page {
   cursor: not-allowed;
 }
 
+/* Pre-exam camera gate */
+.fx-camera-gate {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 10px;
+  margin-bottom: 18px;
+  font-size: 0.88rem;
+  color: #9a3412;
+  line-height: 1.55;
+}
+.fx-camera-gate-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.fx-camera-gate strong { color: #7c2d12; }
+.fx-camera-gate .fx-camera-gate-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.78rem;
+  color: #b45309;
+  opacity: 0.9;
+}
+.fx-camera-gate-ok {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: #ecfdf5;
+  border: 1px solid #6ee7b7;
+  border-radius: 10px;
+  margin-bottom: 18px;
+  font-size: 0.88rem;
+  color: #065f46;
+  font-weight: 600;
+}
+/* Checking state — neutral, not yet confirmed */
+.fx-camera-gate-checking {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: #eff6ff;
+  border: 1px solid #93c5fd;
+  border-radius: 10px;
+  margin-bottom: 18px;
+  font-size: 0.88rem;
+  color: #1e40af;
+  line-height: 1.55;
+}
+.fx-camera-gate-checking strong { color: #1e3a8a; }
+.fx-camera-gate-checking .fx-camera-gate-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.78rem;
+  color: #3b82f6;
+  opacity: 0.9;
+}
+.fx-camera-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #bfdbfe;
+  border-top-color: #1e40af;
+  border-radius: 50%;
+  animation: fxRoomSpin 0.7s linear infinite;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.fx-camera-bypass-link {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: center;
+  font-family: inherit;
+  font-size: 0.8rem;
+  color: #64748b;
+  padding: 10px 4px 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.fx-camera-bypass-link:hover { color: #d95300; }
+
+/* Camera preview container on the rules screen */
+.fx-rules-camera-preview {
+  max-width: 340px;
+  margin: 0 auto 18px;
+}
+
+/* Full-screen obstruction pause overlay */
+.fx-obstruction-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9997;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  box-sizing: border-box;
+}
+.fx-obstruction-card {
+  max-width: 460px;
+  width: 100%;
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 32px 28px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  font-family: sans-serif;
+}
+.fx-obstruction-icon {
+  font-size: 2.4rem;
+  margin-bottom: 10px;
+}
+.fx-obstruction-title {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: #7c2d12;
+  margin: 0 0 10px;
+}
+.fx-obstruction-msg {
+  font-size: 0.92rem;
+  color: #475569;
+  line-height: 1.6;
+  margin: 0 0 16px;
+}
+.fx-obstruction-note {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+.fx-obstruction-bypass {
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 0.8rem;
+  color: #64748b;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 4px;
+}
+.fx-obstruction-bypass:hover { color: #d95300; }
+
 /* Main exam layout */
 .fx-room-grid {
   display: grid;
@@ -497,6 +648,11 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
   // ---- Local state ----
   const [rulesAcknowledged, setRulesAcknowledged] = useState(false);
   const [webcamStatus, setWebcamStatus] = useState<WebcamStatus>('idle');
+  const [cameraObstructed, setCameraObstructed] = useState(false);
+  const [cameraObstructedOnRules, setCameraObstructedOnRules] = useState(false);
+  const [cameraCheckedOnRules, setCameraCheckedOnRules] = useState(false);
+  const [cameraBypassed, setCameraBypassed] = useState(false);
+  const [showCameraBypassDialog, setShowCameraBypassDialog] = useState(false);
   const [fullscreenActive, setFullscreenActive] = useState(false);
   const [showTabWarning, setShowTabWarning] = useState(false);
   const [showExitDialog, setShowExitDialog] = useState(false);
@@ -510,9 +666,6 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
 
   // -------------------------------------------------------------------------
   // PROCTORING — copy / cut / paste / right-click blocking + audit trail.
-  //
-  // This hook handles all clipboard blocking and captures what was selected
-  // when an attempt happened. It only activates while in the exam.
   // -------------------------------------------------------------------------
   useProctoring({
     view,
@@ -521,10 +674,6 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
 
   // -------------------------------------------------------------------------
   // EXAM MODE — hide the site navbar while the exam room is mounted.
-  //
-  // We add a class to <body> so the navbar's CSS can react to it. The cleanup
-  // removes the class when the user navigates away (including on submit
-  // redirect, browser back, or route change).
   // -------------------------------------------------------------------------
   useEffect(() => {
     document.body.classList.add('fx-in-exam');
@@ -583,7 +732,6 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
   useEffect(() => {
     const handleVisibility = () => {
       if (document.hidden && view === 'question') {
-        // Dedupe: ignore if we logged a tab-switch in the last 500ms
         const now = Date.now();
         const last = lastProctorEventRef.current;
         if (last && last.type === 'tab-switch' && now - last.time < 500) {
@@ -613,9 +761,58 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
   }, [view]);
 
   // -------------------------------------------------------------------------
-  // NOTE: Copy / paste / right-click blocking now lives in useProctoring().
-  // The old inline useEffect has been removed — the hook owns that logic.
+  // CAMERA OBSTRUCTION HANDLERS — mid-exam
   // -------------------------------------------------------------------------
+  const handleCameraObstructed = useCallback(() => {
+    if (cameraBypassed) return;
+    setCameraObstructed(true);
+    void logProctorEvent('camera-obstructed');
+  }, [cameraBypassed, logProctorEvent]);
+
+  const handleCameraRestored = useCallback(() => {
+    setCameraObstructed(false);
+    void logProctorEvent('camera-restored');
+  }, [logProctorEvent]);
+
+  // -------------------------------------------------------------------------
+  // CAMERA OBSTRUCTION HANDLERS — on the rules screen
+  //
+  // These don't log proctor events (the attempt hasn't started yet). They
+  // gate the Start button until the camera is genuinely usable.
+  //
+  // `cameraCheckedOnRules` is set to true the first time either callback
+  // fires — signalling that the pixel-sampling loop has run at least once.
+  // Until then, the gate shows a "Checking camera…" state instead of
+  // prematurely showing green.
+  // -------------------------------------------------------------------------
+  const handleRulesCameraObstructed = useCallback(() => {
+    setCameraCheckedOnRules(true);
+    setCameraObstructedOnRules(true);
+  }, []);
+
+  const handleRulesCameraRestored = useCallback(() => {
+    setCameraCheckedOnRules(true);
+    setCameraObstructedOnRules(false);
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // CAMERA BYPASS
+  // -------------------------------------------------------------------------
+  const handleRequestBypass = useCallback(() => {
+    setShowCameraBypassDialog(true);
+  }, []);
+
+  const handleConfirmBypass = useCallback(() => {
+    setShowCameraBypassDialog(false);
+    setCameraBypassed(true);
+    setCameraObstructed(false);
+    setCameraObstructedOnRules(false);
+    void logProctorEvent('camera-bypassed');
+  }, [logProctorEvent]);
+
+  const handleCancelBypass = useCallback(() => {
+    setShowCameraBypassDialog(false);
+  }, []);
 
   // -------------------------------------------------------------------------
   // SAVE INDICATOR
@@ -660,7 +857,6 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
     void toggleFlag(currentQuestion.id);
   }, [currentQuestion, toggleFlag]);
 
-  // ✅ FIXED: moved above the early returns so hooks are called unconditionally
   const handleStreamLost = useCallback(() => {
     void logProctorEvent('webcam-disconnect');
   }, [logProctorEvent]);
@@ -704,6 +900,21 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
     }
     abandon();
   }, [abandon]);
+
+  // Derived flags used in multiple renders below.
+  //
+  // Rules screen — camera is "ready" only when:
+  //   1. status is 'live', AND
+  //   2. the pixel sampler has run at least once (`cameraCheckedOnRules`), AND
+  //   3. the frame was not classified as obstructed
+  // ...OR the user has bypassed the check entirely.
+  const cameraReadyOnRules =
+    (webcamStatus === 'live' &&
+      cameraCheckedOnRules &&
+      !cameraObstructedOnRules) ||
+    cameraBypassed;
+
+  const cameraLocksUi = cameraObstructed && !cameraBypassed;
 
   // -------------------------------------------------------------------------
   // RENDER — LOADING
@@ -782,9 +993,11 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
   }
 
   // -------------------------------------------------------------------------
-  // RENDER — RULES SCREEN
+  // RENDER — RULES SCREEN (with camera gate + live preview)
   // -------------------------------------------------------------------------
   if (view === 'rules') {
+    const canStart = rulesAcknowledged && cameraReadyOnRules;
+
     return (
       <div className="fx-room-page">
         <style>{pageCss}</style>
@@ -796,6 +1009,87 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
               This is a proctored high-stakes assessment. Please read the
               following carefully before starting.
             </p>
+
+            {cameraBypassed ? (
+              <div className="fx-camera-gate-ok">
+                <span aria-hidden="true">⚠</span>
+                <span>
+                  Continuing without camera. Your attempt will be flagged for
+                  manual review.
+                </span>
+              </div>
+            ) : (
+              <>
+                {/* Always render the preview so the sampler can run. */}
+                <div className="fx-rules-camera-preview">
+                  <WebcamPreview
+                    onStatusChange={setWebcamStatus}
+                    onStreamLost={handleStreamLost}
+                    onObstructed={handleRulesCameraObstructed}
+                    onRestored={handleRulesCameraRestored}
+                    label="Camera check"
+                  />
+                </div>
+
+                {cameraObstructedOnRules ? (
+                  /* Camera physically covered */
+                  <div className="fx-camera-gate">
+                    <span className="fx-camera-gate-icon" aria-hidden="true">
+                      📷
+                    </span>
+                    <div>
+                      <strong>Camera is covered.</strong> Please uncover the
+                      lens and make sure your face is visible to begin the
+                      exam.
+                      <span className="fx-camera-gate-hint">
+                        Waiting for a clear image…
+                      </span>
+                    </div>
+                  </div>
+                ) : webcamStatus === 'live' && cameraCheckedOnRules ? (
+                  /* Live and verified clear */
+                  <div className="fx-camera-gate-ok">
+                    <span aria-hidden="true">✓</span>
+                    <span>Camera active. You're good to go.</span>
+                  </div>
+                ) : webcamStatus === 'live' && !cameraCheckedOnRules ? (
+                  /* Live but sampler hasn't finished its first pass */
+                  <div className="fx-camera-gate-checking">
+                    <span className="fx-camera-spinner" aria-hidden="true" />
+                    <div>
+                      <strong>Checking camera…</strong> Hold still for a moment
+                      while we verify the image is clear.
+                      <span className="fx-camera-gate-hint">
+                        This takes about two seconds.
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  /* Camera not live yet */
+                  <div className="fx-camera-gate">
+                    <span className="fx-camera-gate-icon" aria-hidden="true">
+                      📷
+                    </span>
+                    <div>
+                      <strong>Camera required.</strong> Please allow camera
+                      access and make sure your lens is not covered to begin
+                      the exam.
+                      <span className="fx-camera-gate-hint">
+                        Waiting for camera… (
+                        {webcamStatus === 'denied'
+                          ? 'access denied'
+                                                   : webcamStatus === 'requesting'
+                            ? 'starting'
+                            : webcamStatus === 'error'
+                              ? 'unavailable'
+                              : 'idle'}
+                        )
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
 
             <ul className="fx-rules-list">
               <li>
@@ -825,7 +1119,8 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
                 <span className="fx-rules-icon">4</span>
                 <div>
                   <strong>Your webcam is monitored.</strong> Keep your face
-                  visible and remain seated. Recording begins immediately.
+                  visible and remain seated. Covering the camera will pause the
+                  exam.
                 </div>
               </li>
               <li>
@@ -859,13 +1154,52 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
             <button
               type="button"
               className="fx-rules-start"
-              disabled={!rulesAcknowledged}
+              disabled={!canStart}
               onClick={handleAcknowledgeRules}
             >
               Start Exam →
             </button>
+
+            {!cameraReadyOnRules && !cameraBypassed && (
+              <button
+                type="button"
+                className="fx-camera-bypass-link"
+                onClick={handleRequestBypass}
+              >
+                Having technical issues? Continue anyway
+              </button>
+            )}
           </div>
         </div>
+
+        {showCameraBypassDialog && (
+          <div className="fx-exit-backdrop" role="alertdialog" aria-modal="true">
+            <div className="fx-exit-card">
+              <h2 className="fx-exit-title">Continue without camera?</h2>
+              <p className="fx-exit-message">
+                Your attempt will be flagged for <strong>manual review</strong>.
+                The instructor will be notified. This decision cannot be undone
+                once the exam starts.
+              </p>
+              <div className="fx-exit-actions">
+                <button
+                  type="button"
+                  className="fx-exit-btn secondary"
+                  onClick={handleCancelBypass}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="fx-exit-btn danger"
+                  onClick={handleConfirmBypass}
+                >
+                  Continue anyway
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -886,6 +1220,7 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
       </div>
     );
   }
+
   // -------------------------------------------------------------------------
   // RENDER — REVIEW
   // -------------------------------------------------------------------------
@@ -1033,7 +1368,7 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
                   onChange={handleAnswerChange}
                   onToggleFlag={handleToggleFlag}
                   saveState={saveState}
-                  disabled={integrityCompromised}
+                  disabled={integrityCompromised || cameraLocksUi}
                 />
 
                 <div className="fx-room-nav">
@@ -1041,7 +1376,7 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
                     type="button"
                     className="fx-room-nav-btn"
                     onClick={previousQuestion}
-                    disabled={isFirstQuestion}
+                    disabled={isFirstQuestion || cameraLocksUi}
                   >
                     ← Previous
                   </button>
@@ -1053,6 +1388,7 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
                       type="button"
                       className="fx-room-nav-btn primary"
                       onClick={goToReview}
+                      disabled={cameraLocksUi}
                     >
                       Review & Submit →
                     </button>
@@ -1061,6 +1397,7 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
                       type="button"
                       className="fx-room-nav-btn primary"
                       onClick={nextQuestion}
+                      disabled={cameraLocksUi}
                     >
                       Next →
                     </button>
@@ -1088,11 +1425,74 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
             <WebcamPreview
               onStatusChange={setWebcamStatus}
               onStreamLost={handleStreamLost}
+              onObstructed={handleCameraObstructed}
+              onRestored={handleCameraRestored}
               label="Proctored session"
             />
           </aside>
         </div>
       </div>
+
+      {/* Obstruction pause overlay */}
+      {cameraLocksUi && (
+        <div
+          className="fx-obstruction-overlay"
+          role="alertdialog"
+          aria-modal="true"
+        >
+          <div className="fx-obstruction-card">
+            <div className="fx-obstruction-icon" aria-hidden="true">
+              📷
+            </div>
+            <h2 className="fx-obstruction-title">Camera obstructed</h2>
+            <p className="fx-obstruction-msg">
+              Your camera is covered or showing a dark image. Please uncover the
+              lens and make sure your face is visible. The exam will resume
+              automatically as soon as the camera is working again.
+            </p>
+            <p className="fx-obstruction-note">
+              This incident has been logged. The timer continues to run.
+            </p>
+            <button
+              type="button"
+              className="fx-obstruction-bypass"
+              onClick={handleRequestBypass}
+            >
+              Having technical issues? Continue anyway
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bypass confirm dialog — shared by rules screen and obstruction overlay */}
+      {showCameraBypassDialog && (
+        <div className="fx-exit-backdrop" role="alertdialog" aria-modal="true">
+          <div className="fx-exit-card">
+            <h2 className="fx-exit-title">Continue without camera?</h2>
+            <p className="fx-exit-message">
+              Your attempt will be flagged for <strong>manual review</strong>.
+              The instructor will be notified. You will not be able to re-enable
+              the camera requirement after this.
+            </p>
+            <div className="fx-exit-actions">
+              <button
+                type="button"
+                className="fx-exit-btn secondary"
+                onClick={handleCancelBypass}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="fx-exit-btn danger"
+                onClick={handleConfirmBypass}
+              >
+                Continue anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Overlays */}
       {showTabWarning && (
@@ -1175,4 +1575,4 @@ const ExitDialog: React.FC<ExitDialogProps> = ({ onCancel, onConfirm }) => {
       </div>
     </>
   );
-};
+}; 

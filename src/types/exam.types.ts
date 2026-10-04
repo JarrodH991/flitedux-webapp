@@ -327,6 +327,9 @@ export type ProctorEventType =
   | 'devtools-open-attempt'
   | 'webcam-disconnect'
   | 'webcam-reconnect'
+  | 'camera-obstructed'             // camera covered / blacked out mid-exam
+  | 'camera-restored'               // camera unblocked, exam resumed
+  | 'camera-bypassed'               // candidate skipped the pre-exam camera gate
   | 'idle-warning'
   | 'multiple-faces'                // from AI proctoring (future)
   | 'no-face-detected'              // from AI proctoring (future)

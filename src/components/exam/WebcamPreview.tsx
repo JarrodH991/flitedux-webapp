@@ -4,6 +4,10 @@
 // Small webcam preview for the exam room. Requests camera access, streams
 // to a <video> element, and reports status to the parent.
 //
+// Now also detects when the camera is obstructed (covered, blacked out,
+// or facing a wall) by sampling pixels onto a hidden canvas. Fires
+// onObstructed / onRestored so the parent can pause / resume the exam.
+//
 // Includes a Retry button when the camera fails, and better diagnostics
 // in the console so you can see exactly what went wrong.
 //
@@ -61,6 +65,7 @@ const camCss = `
 .fx-cam-dot.live    { background: #22c55e; }
 .fx-cam-dot.request { background: #eab308; }
 .fx-cam-dot.error   { background: #ef4444; }
+.fx-cam-dot.obstructed { background: #f97316; }
 
 .fx-cam-dot.live::after {
   content: '';
@@ -121,6 +126,27 @@ const camCss = `
   left: 10px;
 }
 
+.fx-cam-obstructed-banner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(120, 53, 15, 0.85);
+  color: #fef3c7;
+  font-family: sans-serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: center;
+  padding: 16px;
+}
+
+.fx-cam-obstructed-banner .big {
+  font-size: 1.6rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .fx-cam-dot.live::after { animation: none; }
 }
@@ -131,27 +157,42 @@ export type WebcamStatus = 'idle' | 'requesting' | 'live' | 'denied' | 'error';
 interface WebcamPreviewProps {
   onStatusChange?: (status: WebcamStatus) => void;
   onStreamLost?: () => void;
+  /** Fires when the video goes dark for ~2 seconds while status is 'live'. */
+  onObstructed?: () => void;
+  /** Fires when the video becomes visible again after being obstructed. */
+  onRestored?: () => void;
   label?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Blackness detection constants
+// ---------------------------------------------------------------------------
+
+const SAMPLE_INTERVAL_MS = 700;
+const DARK_PIXEL_THRESHOLD = 25;
+const DARK_FRAME_RATIO = 0.95;
+const CONSECUTIVE_DARK_FRAMES = 3;
 
 export const WebcamPreview: React.FC<WebcamPreviewProps> = ({
   onStatusChange,
   onStreamLost,
+  onObstructed,
+  onRestored,
   label = 'Camera',
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [status, setStatus] = useState<WebcamStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
+  const [obstructed, setObstructed] = useState(false);
 
-  // Report status to parent
   useEffect(() => {
     onStatusChange?.(status);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
-  // Stop the current stream (if any)
   const stopStream = useCallback(() => {
     const stream = streamRef.current;
     if (stream) {
@@ -164,7 +205,6 @@ export const WebcamPreview: React.FC<WebcamPreviewProps> = ({
     }
   }, []);
 
-  // Start the camera
   useEffect(() => {
     let cancelled = false;
 
@@ -181,9 +221,6 @@ export const WebcamPreview: React.FC<WebcamPreviewProps> = ({
 
       let stream: MediaStream;
       try {
-        // Simple constraints work best across browsers.
-        // Over-constraining (facingMode, ideal width/height) causes failures
-        // on some webcams.
         stream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: false,
@@ -225,8 +262,6 @@ export const WebcamPreview: React.FC<WebcamPreviewProps> = ({
 
       streamRef.current = stream;
 
-      // Wait for the video element to be in the DOM. In some cases the ref
-      // is null on the very first tick after mounting.
       let attempts = 0;
       while (!videoRef.current && attempts < 20) {
         await new Promise((r) => setTimeout(r, 50));
@@ -246,18 +281,13 @@ export const WebcamPreview: React.FC<WebcamPreviewProps> = ({
       video.muted = true;
       video.playsInline = true;
 
-      // Try to play. On some browsers this needs a user gesture, so we
-      // swallow the error and let the retry button handle it.
       try {
         await video.play();
       } catch (playErr) {
         // eslint-disable-next-line no-console
         console.warn('[WebcamPreview] play() failed:', playErr);
-        // Don't treat this as fatal — the video may still work when the
-        // user interacts with the page.
       }
 
-      // Listen for the stream ending (device unplugged, permission revoked)
       stream.getVideoTracks().forEach((track) => {
         track.addEventListener('ended', () => {
           if (cancelled) return;
@@ -280,24 +310,110 @@ export const WebcamPreview: React.FC<WebcamPreviewProps> = ({
     };
   }, [onStreamLost, stopStream, retryKey]);
 
-  // Retry handler
+  // ---------------------------------------------------------------------
+  // Obstructed-camera detection
+  //
+  // NOTE: We intentionally do NOT call setState synchronously in the
+  // effect body. All setState calls here happen either:
+  //   - inside the setInterval callback (async, external event), or
+  //   - inside the cleanup function (runs after render, not during it)
+  // This keeps React's lint rule ("no synchronous setState in effects")
+  // happy and avoids cascading renders.
+  // ---------------------------------------------------------------------
+  useEffect(() => {
+    if (status !== 'live') return;
+
+    if (!canvasRef.current) {
+      const c = document.createElement('canvas');
+      c.width = 160;
+      c.height = 120;
+      canvasRef.current = c;
+    }
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    let darkStreak = 0;
+    let currentlyObstructed = false;
+    let timerId: ReturnType<typeof setInterval> | null = null;
+
+    const sampleFrame = () => {
+      const video = videoRef.current;
+      if (!video || video.readyState < 2) return;
+
+      try {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      } catch {
+        return;
+      }
+
+      let darkCount = 0;
+      let totalCount = 0;
+      const step = 8;
+      for (let x = 0; x < canvas.width; x += step) {
+        for (let y = 0; y < canvas.height; y += step) {
+          const p = ctx.getImageData(x, y, 1, 1).data;
+          totalCount += 1;
+          if (
+            p[0] < DARK_PIXEL_THRESHOLD &&
+            p[1] < DARK_PIXEL_THRESHOLD &&
+            p[2] < DARK_PIXEL_THRESHOLD
+          ) {
+            darkCount += 1;
+          }
+        }
+      }
+
+      const ratio = totalCount > 0 ? darkCount / totalCount : 0;
+
+      if (ratio >= DARK_FRAME_RATIO) {
+        darkStreak += 1;
+      } else {
+        darkStreak = 0;
+      }
+
+      if (!currentlyObstructed && darkStreak >= CONSECUTIVE_DARK_FRAMES) {
+        currentlyObstructed = true;
+        setObstructed(true);
+        onObstructed?.();
+      } else if (currentlyObstructed && darkStreak === 0) {
+        currentlyObstructed = false;
+        setObstructed(false);
+        onRestored?.();
+      }
+    };
+
+    timerId = setInterval(sampleFrame, SAMPLE_INTERVAL_MS);
+
+    return () => {
+      if (timerId) clearInterval(timerId);
+      // Reset obstruction flag when leaving the 'live' state or unmounting.
+      // This runs in the cleanup phase — outside the render cycle — so it
+      // does not trigger the synchronous-setState lint warning.
+      setObstructed(false);
+    };
+  }, [status, onObstructed, onRestored]);
+
   const handleRetry = () => {
     stopStream();
     setRetryKey((k) => k + 1);
   };
 
   const dotClass =
-    status === 'live' ? 'live'
-    : status === 'requesting' ? 'request'
-    : status === 'denied' || status === 'error' ? 'error'
-    : '';
+    status === 'live'
+      ? obstructed ? 'obstructed' : 'live'
+      : status === 'requesting' ? 'request'
+      : status === 'denied' || status === 'error' ? 'error'
+      : '';
 
   const statusText =
-    status === 'live' ? 'Recording'
-    : status === 'requesting' ? 'Starting camera…'
-    : status === 'denied' ? 'Access denied'
-    : status === 'error' ? 'Unavailable'
-    : 'Idle';
+    status === 'live'
+      ? obstructed ? 'Camera obstructed' : 'Recording'
+      : status === 'requesting' ? 'Starting camera…'
+      : status === 'denied' ? 'Access denied'
+      : status === 'error' ? 'Unavailable'
+      : 'Idle';
 
   return (
     <>
@@ -338,6 +454,16 @@ export const WebcamPreview: React.FC<WebcamPreviewProps> = ({
                 Retry
               </button>
             )}
+          </div>
+        )}
+
+        {status === 'live' && obstructed && (
+          <div className="fx-cam-obstructed-banner" role="alert">
+            <div className="big" aria-hidden="true">⚠</div>
+            <div>Camera obstructed</div>
+            <div style={{ fontSize: '0.72rem', fontWeight: 500, opacity: 0.9 }}>
+              Uncover the lens to resume
+            </div>
           </div>
         )}
 

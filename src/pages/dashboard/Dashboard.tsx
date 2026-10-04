@@ -17,7 +17,7 @@
 // ============================================================================
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../../context/authHooks';
 import * as api from '../../services/api';
@@ -129,6 +129,7 @@ const pageCss = `
 /* ================= Section ================= */
 .fx-dash-section {
   margin-bottom: 40px;
+  scroll-margin-top: 100px;
 }
 .fx-dash-section-head {
   display: flex;
@@ -564,6 +565,7 @@ const pageCss = `
 export const Dashboard: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // ---- Core dashboard data ----
   const [attempts, setAttempts] = useState<Attempt[]>([]);
@@ -651,6 +653,24 @@ export const Dashboard: React.FC = () => {
       cancelled = true;
     };
   }, [user]);
+
+  // ---------------------------------------------------------------------------
+  // Scroll to a section when the URL hash changes (e.g. /dashboard#my-courses).
+  // Runs after data loads so the target element exists in the DOM.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (loading) return;
+    const hash = location.hash.replace('#', '');
+    if (!hash) return;
+    // Give the browser a tick to paint the section before scrolling.
+    const t = setTimeout(() => {
+      const el = document.getElementById(hash);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 50);
+    return () => clearTimeout(t);
+  }, [location.hash, loading]);
 
   // ---------------------------------------------------------------------------
   // Derived data
@@ -929,7 +949,7 @@ export const Dashboard: React.FC = () => {
 )}
 
             {/* ============ MY COURSES ============ */}
-            <div className="fx-dash-section">
+            <div className="fx-dash-section" id="my-courses">
               <div className="fx-dash-section-head">
                 <h2 className="fx-dash-section-title">My Courses</h2>
                 <Link to="/courses" className="fx-dash-section-link">
