@@ -31,6 +31,10 @@ import { ProtectedRoute } from './pages/auth/ProtectedRoute';
 
 // ==================== USER DASHBOARD ====================
 import { Dashboard } from './pages/dashboard/Dashboard';
+import { CalendarPage } from './pages/dashboard/CalendarPage';
+import { TodoPage } from './pages/dashboard/TodoPage';
+import { CertificatesList } from './pages/dashboard/CertificatesList';
+import { CertificateDetail } from './pages/dashboard/CertificateDetail';
 
 // ==================== EXAM SYSTEM ====================
 import { ExamDashboard } from './pages/exam/ExamDashboard';
@@ -81,9 +85,6 @@ function App() {
                 <Route path="/contact" element={<ContactUs />} />
 
                 {/* ==================== COURSE LEARNING ==================== */}
-                {/* Requires an active enrolment — ProtectedRoute only checks */}
-                {/* that the user is signed in; the page itself checks the */}
-                {/* enrolment and redirects to the course page if missing. */}
                 <Route
                   path="/courses/:slug/learn"
                   element={
@@ -111,6 +112,38 @@ function App() {
                   element={
                     <ProtectedRoute>
                       <Dashboard />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/dashboard/calendar"
+                  element={
+                    <ProtectedRoute>
+                      <CalendarPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+  path="/dashboard/certificates"
+  element={
+    <ProtectedRoute>
+      <CertificatesList />
+    </ProtectedRoute>
+  }
+/>
+<Route
+  path="/dashboard/certificates/:id"
+  element={
+    <ProtectedRoute>
+      <CertificateDetail />
+    </ProtectedRoute>
+  }
+/>
+                <Route
+                  path="/dashboard/todo"
+                  element={
+                    <ProtectedRoute>
+                      <TodoPage />
                     </ProtectedRoute>
                   }
                 />

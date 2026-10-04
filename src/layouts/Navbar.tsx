@@ -4,6 +4,9 @@
 // The site navbar. Shows different content depending on whether the user
 // is logged in and what roles they have.
 //
+// Includes a ☰ menu button (when signed in) that opens the Canvas-style
+// DashboardMenu drawer, with a badge showing how many items are due soon.
+//
 // 🔌 AWS: Uses useAuth() from AuthContext, which reads from Cognito.
 // ============================================================================
 
@@ -12,6 +15,8 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../context/authHooks';
 import { userCanViewAudit, userCanAuthorContent } from '../types/auth.types';
+import { DashboardMenu } from '../components/dashboard/DashboardMenu';
+import * as api from '../services/api';
 
 // ---------------------------------------------------------------------------
 // STYLES
@@ -42,6 +47,64 @@ const navCss = `
 }
 @media (min-width: 960px) {
   .fx-nav-inner { padding: 14px 40px; }
+}
+
+/* ---------- Left group: menu button + logo ---------- */
+.fx-nav-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/* Canvas-style ☰ menu button */
+.fx-nav-menubtn {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-family: inherit;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  padding: 0;
+}
+.fx-nav-menubtn:hover {
+  border-color: #d95300;
+  color: #d95300;
+  background: #fff7ed;
+}
+.fx-nav-menubtn:focus-visible {
+  outline: 2px solid #d95300;
+  outline-offset: 2px;
+}
+
+.fx-nav-menubtn-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #d95300;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 2px solid #ffffff;
+  line-height: 1;
+  pointer-events: none;
 }
 
 /* Logo */
@@ -346,6 +409,8 @@ const navCss = `
   .fx-nav-logo-tile { width: 48px; height: 48px; border-radius: 12px; }
   .fx-nav-logo-text { font-size: 18px; }
   .fx-nav-inner { padding: 10px 16px; }
+  /* On mobile, the menubtn is smaller too */
+  .fx-nav-menubtn { width: 40px; height: 40px; font-size: 16px; }
 }
 
 .fx-nav-mobile {
@@ -484,6 +549,10 @@ export const Navbar: React.FC = () => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
+  // ---- Dashboard drawer menu ----
+  const [isDashboardMenuOpen, setIsDashboardMenuOpen] = useState(false);
+  const [todoCount, setTodoCount] = useState(0);
+
   // ---- Scroll direction (hide on scroll down) ----
   const [showNavbar, setShowNavbar] = useState(true);
   const lastScrollY = useRef(0);
@@ -532,12 +601,30 @@ export const Navbar: React.FC = () => {
   }, [isUserMenuOpen]);
 
   // -------------------------------------------------------------------------
+  // Fetch the to-do badge count whenever the user changes.
+  // Used to show a small red badge on the ☰ menu button.
+  // -------------------------------------------------------------------------
+  // Fetch the to-do badge count whenever the user changes.
+//
+// We don't call setTodoCount(0) when there's no user — that would be a
+// synchronous setState inside an effect, which React flags as a cascade.
+// Instead we just skip the fetch. The badge is hidden when not signed in
+// anyway (the menu button only renders when authenticated).
+useEffect(() => {
+  if (!user) return;
+  let cancelled = false;
+  void api.getTodoCount(user.id).then((res) => {
+    if (!cancelled && res.ok) {
+      setTodoCount(res.data);
+    }
+  });
+  return () => {
+    cancelled = true;
+  };
+}, [user]);
+
+  // -------------------------------------------------------------------------
   // Close any open menus. Called from every Link's onClick.
-  //
-  // We used to do this in a useEffect that watched location.pathname, but
-  // that caused a "cascading renders" warning because setState ran
-  // synchronously in an effect. Doing it in the click handler means the
-  // navigation and the menu-close happen in the same React batch.
   // -------------------------------------------------------------------------
   const closeMenus = () => {
     setIsMobileMenuOpen(false);
@@ -613,13 +700,33 @@ export const Navbar: React.FC = () => {
       <style>{navCss}</style>
 
       <div className="fx-nav-inner">
-        {/* ==================== LOGO ==================== */}
-        <Link to="/" className="fx-nav-logo" onClick={closeMenus}>
-          <div className="fx-nav-logo-tile">
-            <img src="/images/flitedux-logo.png" alt="Flitedux" />
-          </div>
-          <span className="fx-nav-logo-text">Flitedux</span>
-        </Link>
+        {/* ==================== LEFT: MENU BUTTON + LOGO ==================== */}
+        <div className="fx-nav-left">
+          {/* ☰ Dashboard menu button — visible when signed in */}
+          {isAuthenticated && (
+            <button
+              type="button"
+              className="fx-nav-menubtn"
+              onClick={() => setIsDashboardMenuOpen(true)}
+              aria-label="Open dashboard menu"
+              title="Open dashboard menu"
+            >
+              ☰
+              {todoCount > 0 && (
+                <span className="fx-nav-menubtn-badge">
+                  {todoCount > 9 ? '9+' : todoCount}
+                </span>
+              )}
+            </button>
+          )}
+
+          <Link to="/" className="fx-nav-logo" onClick={closeMenus}>
+            <div className="fx-nav-logo-tile">
+              <img src="/images/flitedux-logo.png" alt="Flitedux" />
+            </div>
+            <span className="fx-nav-logo-text">Flitedux</span>
+          </Link>
+        </div>
 
         {/* ==================== DESKTOP LINKS ==================== */}
         <ul className="fx-nav-links">
@@ -931,6 +1038,52 @@ export const Navbar: React.FC = () => {
             </li>
           )}
 
+          {isAuthenticated && (
+            <li>
+              <button
+                type="button"
+                className="fx-nav-mobile-link"
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  setIsDashboardMenuOpen(true);
+                }}
+                style={{
+                  border: 'none',
+                  textAlign: 'left',
+                  fontFamily: 'inherit',
+                  cursor: 'pointer',
+                  backgroundColor: '#fff7ed',
+                  color: '#d95300',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <span>☰ Open dashboard menu</span>
+                {todoCount > 0 && (
+                  <span
+                    style={{
+                      background: '#d95300',
+                      color: '#fff',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      minWidth: 20,
+                      height: 20,
+                      borderRadius: 10,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '0 6px',
+                    }}
+                  >
+                    {todoCount > 9 ? '9+' : todoCount}
+                  </span>
+                )}
+              </button>
+            </li>
+          )}
+
           {publicLinks.map((link) => (
             <li key={link.name}>
               <Link
@@ -1071,6 +1224,13 @@ export const Navbar: React.FC = () => {
           </li>
         </ul>
       )}
+
+      {/* ==================== DASHBOARD MENU DRAWER ==================== */}
+      <DashboardMenu
+        open={isDashboardMenuOpen}
+        onClose={() => setIsDashboardMenuOpen(false)}
+        todoBadgeCount={todoCount}
+      />
     </nav>
   );
 };

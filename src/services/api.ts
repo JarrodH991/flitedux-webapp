@@ -45,6 +45,14 @@ import type {
   LessonProgress,
 } from '../types/course.types';
 
+import type {
+  AssignmentProgress,
+  AssignmentWithProgress,
+  CalendarEvent,
+} from '../types/assignment.types';
+
+import type { Certificate } from '../types/certificate.types';
+
 // ---------------------------------------------------------------------------
 // DEV DATA IMPORTS
 // ---------------------------------------------------------------------------
@@ -87,6 +95,12 @@ import {
 import {
   getCourseContent as getCourseContentFromData,
 } from '../data/CourseContent';
+
+import {
+  getVisibleAssignmentsForUser as getVisibleAssignmentsForUserFromData,
+  readPersistedAssignmentProgress as readPersistedAssignmentProgressFromData,
+  persistAssignmentProgress as persistAssignmentProgressToStorage,
+} from '../data/dev/devAssignments';
 
 // ---------------------------------------------------------------------------
 // SIMULATED NETWORK DELAY
@@ -1157,8 +1171,6 @@ export function resetDevEnrolments(): void {
 
 /**
  * Get a single course from the catalogue by slug.
- * Wraps the static `courses` array so consumers can look up a course
- * without importing the data file directly.
  */
 export async function getCourseBySlug(
   slug: string,
@@ -1177,10 +1189,6 @@ export async function getCourseBySlug(
 // COURSE LEARNING — content, progress
 // ---------------------------------------------------------------------------
 
-/**
- * Get the learning content tree for a course.
- * Returns null if the course has no content yet.
- */
 export async function getCourseContent(
   slug: string,
 ): Promise<ApiResult<CourseContent | null>> {
@@ -1193,9 +1201,6 @@ export async function getCourseContent(
   }
 }
 
-/**
- * Get all lesson progress for a user in a specific course.
- */
 export async function getUserCourseProgress(
   userId: string,
   courseSlug: string,
@@ -1212,10 +1217,6 @@ export async function getUserCourseProgress(
   }
 }
 
-/**
- * Save progress on a single lesson. Upserts — if a record already exists
- * for this user + course + lesson, it's replaced.
- */
 export async function updateLessonProgress(params: {
   userId: string;
   courseSlug: string;
@@ -1243,14 +1244,11 @@ export async function updateLessonProgress(params: {
       courseSlug: params.courseSlug,
       lessonId: params.lessonId,
       status: params.status,
-      // Preserve startedAt if we had one, otherwise set it now
       startedAt: existing?.startedAt ?? now,
-      // Only set completedAt when the status is 'completed'
       completedAt:
         params.status === 'completed'
           ? existing?.completedAt ?? now
           : undefined,
-      // Preserve score if we don't have a new one
       score: params.score ?? existing?.score,
     };
 
@@ -1267,10 +1265,6 @@ export async function updateLessonProgress(params: {
   }
 }
 
-/**
- * Mark every lesson in a course as not-started.
- * Used for testing — resets the user's progress.
- */
 export async function resetUserCourseProgress(
   userId: string,
   courseSlug: string,
@@ -1315,11 +1309,6 @@ function persistLessonProgress(records: LessonProgress[]): void {
   }
 }
 
-/**
- * Dev-only: wipe all lesson progress for all users.
- * Call from the browser console:
- *   import('/src/services/api.ts').then(m => m.resetDevLessonProgress())
- */
 export function resetDevLessonProgress(): void {
   try {
     localStorage.removeItem(DEV_LESSON_PROGRESS_STORAGE_KEY);
@@ -1327,5 +1316,414 @@ export function resetDevLessonProgress(): void {
     console.log('[DEV] Lesson progress cleared. Reload to see the change.');
   } catch {
     /* ignore */
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ASSIGNMENTS — teacher-assigned work
+// ---------------------------------------------------------------------------
+// An "assignment" is something a teacher wants a student to complete by a
+// specific date. It can point at a lesson, quiz, exam, or be a free-form task.
+//
+// 🔌 AWS: Assignments live in DynamoDB `assignments` table.
+//         Progress lives in `assignment_progress` (PK: userId, SK: assignmentId).
+// ---------------------------------------------------------------------------
+
+/**
+ * Get every assignment visible to a specific user, enriched with the
+ * user's progress and a computed status.
+ */
+export async function getAssignmentsForUser(
+  userId: string,
+): Promise<ApiResult<AssignmentWithProgress[]>> {
+  try {
+    await delay(null, 150);
+
+    const assignments = getVisibleAssignmentsForUserFromData(userId);
+    const progressList = readPersistedAssignmentProgressFromData();
+
+    const now = new Date().getTime();
+
+    const enriched: AssignmentWithProgress[] = assignments.map((a) => {
+      const progress = progressList.find(
+        (p) => p.userId === userId && p.assignmentId === a.id,
+      );
+
+      const dueMs = new Date(a.dueAt).getTime();
+      const msUntilDue = dueMs - now;
+      const daysUntilDue = Math.floor(msUntilDue / (1000 * 60 * 60 * 24));
+
+      let status: AssignmentWithProgress['status'];
+      if (progress?.status === 'completed') {
+        const completedMs = progress.completedAt
+          ? new Date(progress.completedAt).getTime()
+          : now;
+        status = completedMs > dueMs ? 'late' : 'completed';
+      } else if (msUntilDue < 0) {
+        status = 'overdue';
+      } else if (msUntilDue < 1000 * 60 * 60 * 48) {
+        status = 'due-soon';
+      } else {
+        status = 'upcoming';
+      }
+
+      return {
+        assignment: a,
+        progress,
+        daysUntilDue,
+        status,
+      };
+    });
+
+    enriched.sort(
+      (a, b) =>
+        new Date(a.assignment.dueAt).getTime() -
+        new Date(b.assignment.dueAt).getTime(),
+    );
+
+    return ok(enriched);
+  } catch (e) {
+    return fromError(e, 'Could not load your assignments.');
+  }
+}
+
+/**
+ * Upsert progress on an assignment.
+ */
+export async function markAssignmentProgress(params: {
+  userId: string;
+  assignmentId: string;
+  status: AssignmentProgress['status'];
+  score?: number;
+}): Promise<ApiResult<AssignmentProgress>> {
+  try {
+    await delay(null, 80);
+
+    const now = new Date().toISOString();
+    const all = readPersistedAssignmentProgressFromData();
+
+    const existingIndex = all.findIndex(
+      (p) =>
+        p.userId === params.userId &&
+        p.assignmentId === params.assignmentId,
+    );
+
+    const existing = existingIndex >= 0 ? all[existingIndex] : null;
+
+    const updated: AssignmentProgress = {
+      userId: params.userId,
+      assignmentId: params.assignmentId,
+      status: params.status,
+      startedAt: existing?.startedAt ?? now,
+      completedAt:
+        params.status === 'completed'
+          ? existing?.completedAt ?? now
+          : undefined,
+      score: params.score ?? existing?.score,
+    };
+
+    if (existingIndex >= 0) {
+      all[existingIndex] = updated;
+    } else {
+      all.push(updated);
+    }
+
+    persistAssignmentProgressToStorage(all);
+    return ok(updated);
+  } catch (e) {
+    return fromError(e, 'Could not save assignment progress.');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CALENDAR — aggregated events
+// ---------------------------------------------------------------------------
+
+/**
+ * Get every dated thing a user should see on their calendar:
+ *   - Assignments
+ *   - Course access expiries
+ *
+ * All normalised into CalendarEvent[] so the calendar page and mini widget
+ * can render them uniformly.
+ */
+export async function getCalendarEvents(
+  userId: string,
+): Promise<ApiResult<CalendarEvent[]>> {
+  try {
+    await delay(null, 200);
+
+    const events: CalendarEvent[] = [];
+
+    // ---------------------------------------------------------------
+    // 1. Assignments → CalendarEvents
+    // ---------------------------------------------------------------
+    const assignments = getVisibleAssignmentsForUserFromData(userId);
+    const progressList = readPersistedAssignmentProgressFromData();
+
+    for (const a of assignments) {
+      const progress = progressList.find(
+        (p) => p.userId === userId && p.assignmentId === a.id,
+      );
+      const completed = progress?.status === 'completed';
+
+      let href = '/dashboard';
+      if (a.type === 'lesson' || a.type === 'quiz') {
+        href = `/courses/${a.courseSlug}/learn${
+          a.lessonId ? `?lesson=${a.lessonId}` : ''
+        }`;
+      } else if (a.type === 'exam' && a.examId) {
+        href = `/exam/exam/${a.examId}`;
+      }
+
+      events.push({
+        id: `cal-${a.id}`,
+        kind: 'assignment',
+        title: a.title,
+        description: a.description,
+        date: a.dueAt,
+        courseSlug: a.courseSlug,
+        href,
+        priority: a.priority,
+        completed,
+      });
+    }
+
+    // ---------------------------------------------------------------
+    // 2. Enrolment expiries → CalendarEvents
+    // ---------------------------------------------------------------
+    const enrolments = readPersistedEnrolments();
+    for (const e of enrolments) {
+      if (e.userId !== userId) continue;
+      if (!e.expiresAt) continue;
+      if (e.status !== 'active') continue;
+
+      events.push({
+        id: `cal-expiry-${e.id}`,
+        kind: 'course-access-expiry',
+        title: `Access ends: ${e.courseTitle}`,
+        description: 'Your access to this course expires on this date.',
+        date: e.expiresAt,
+        courseSlug: e.courseSlug,
+        href: `/courses/${e.courseSlug}`,
+        priority: 'normal',
+        completed: false,
+      });
+    }
+
+    events.sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+    );
+
+    return ok(events);
+  } catch (e) {
+    return fromError(e, 'Could not load calendar events.');
+  }
+}
+
+/**
+ * Get a quick count of assignments due soon (within 7 days) or overdue.
+ * Used by the "To Do" badge in the dashboard menu.
+ */
+export async function getTodoCount(
+  userId: string,
+): Promise<ApiResult<number>> {
+  try {
+    await delay(null, 60);
+
+    const assignments = getVisibleAssignmentsForUserFromData(userId);
+    const progressList = readPersistedAssignmentProgressFromData();
+    const now = Date.now();
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
+    let count = 0;
+    for (const a of assignments) {
+      const progress = progressList.find(
+        (p) => p.userId === userId && p.assignmentId === a.id,
+      );
+      if (progress?.status === 'completed') continue;
+
+      const dueMs = new Date(a.dueAt).getTime();
+      const msUntilDue = dueMs - now;
+
+      if (msUntilDue <= sevenDaysMs) {
+        count += 1;
+      }
+    }
+
+    return ok(count);
+  } catch (e) {
+    return fromError(e, 'Could not load to-do count.');
+  }
+}
+
+/**
+ * Dev-only: reset all assignment progress.
+ */
+export function resetDevAssignments(): void {
+  try {
+    localStorage.removeItem('flitedux_dev_assignment_progress_v1');
+    // eslint-disable-next-line no-console
+    console.log('[DEV] Assignment progress cleared. Reload to see the change.');
+  } catch {
+    /* ignore */
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CERTIFICATES — derived from passed attempts
+// ---------------------------------------------------------------------------
+// A certificate is a view onto an attempt where passed === true. There is no
+// separate storage — every function here reads from the attempts table and
+// projects it into the Certificate shape.
+//
+// 🔌 AWS: In production, this could either:
+//           (a) stay derived from the attempts table, OR
+//           (b) be materialised into a `certificates` table by a Lambda
+//               triggered on exam pass — recommended if you need revocation
+//               or re-issue tracking.
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate a deterministic certificate number from an attempt ID.
+ * Format: FLX-{SUBJECT_CODE}-{YEAR}-{SERIAL}
+ *
+ * Both the subject code and serial are derived from the attempt so the same
+ * attempt always produces the same certificate number.
+ */
+function makeCertificateNumber(
+  attemptId: string,
+  subjectId: string,
+  issuedAt: string,
+): string {
+  // Subject code — last segment of "subj-dg" → "DG"
+  const subjectCode = (subjectId.split('-').pop() ?? 'GEN').toUpperCase();
+
+  // Year from the issued date
+  const year = new Date(issuedAt).getFullYear();
+
+  // Deterministic serial from the attempt ID.
+  // We hash the ID and take the first 4 hex-ish digits, then pad.
+  let hash = 0;
+  for (let i = 0; i < attemptId.length; i++) {
+    hash = (hash * 31 + attemptId.charCodeAt(i)) >>> 0;
+  }
+  const serial = String(hash % 10000).padStart(4, '0');
+
+  return `FLX-${subjectCode}-${year}-${serial}`;
+}
+
+/**
+ * Generate a short verification code from an attempt ID.
+ * Format: 6 uppercase alphanumeric characters, e.g. "A7F3K9".
+ */
+function makeVerificationCode(attemptId: string): string {
+  const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
+  let hash = 0;
+  for (let i = 0; i < attemptId.length; i++) {
+    hash = (hash * 33 + attemptId.charCodeAt(i)) >>> 0;
+  }
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += ALPHABET[hash % ALPHABET.length];
+    hash = Math.floor(hash / ALPHABET.length) + (hash % 7);
+  }
+  return code;
+}
+
+/**
+ * Project a passed attempt + user + exam into a Certificate.
+ * Returns null if any piece of data is missing.
+ */
+async function buildCertificate(
+  attempt: Attempt,
+): Promise<Certificate | null> {
+  // Only passed attempts get certificates
+  if (attempt.passed !== true) return null;
+  if (attempt.status === 'invalidated') return null;
+
+  // Look up the user, exam, and subject
+  const user = findDevUserById(attempt.userId);
+  const exam = getExamById(attempt.examId);
+  const subject = exam ? getSubjectById(exam.subjectId) : null;
+
+  if (!user || !exam) return null;
+
+  const issuedAt = attempt.submittedAt ?? attempt.startedAt;
+
+  return {
+    id: attempt.id,
+    userId: attempt.userId,
+    recipientName: user.displayName,
+    courseSlug: subject
+      ? subject.name.toLowerCase().replace(/\s+/g, '-')
+      : exam.subjectId,
+    courseTitle: subject?.name ?? exam.title,
+    examId: exam.id,
+    examTitle: exam.title,
+    attemptId: attempt.id,
+    scorePercent: attempt.scorePercent ?? 0,
+    issuedAt,
+    certificateNumber: makeCertificateNumber(
+      attempt.id,
+      exam.subjectId,
+      issuedAt,
+    ),
+    verificationCode: makeVerificationCode(attempt.id),
+  };
+}
+
+/**
+ * Get every certificate a user has earned.
+ * Derived by projecting all of their passed attempts.
+ *
+ * Returns newest-first.
+ */
+export async function getCertificatesForUser(
+  userId: string,
+): Promise<ApiResult<Certificate[]>> {
+  try {
+    await delay(null, 200);
+
+    const attempts = getAttemptsForUser(userId);
+    const passed = attempts.filter(
+      (a) => a.passed === true && a.status !== 'invalidated',
+    );
+
+    const certificates: Certificate[] = [];
+    for (const attempt of passed) {
+      const cert = await buildCertificate(attempt);
+      if (cert) certificates.push(cert);
+    }
+
+    // Newest first
+    certificates.sort(
+      (a, b) =>
+        new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime(),
+    );
+
+    return ok(certificates);
+  } catch (e) {
+    return fromError(e, 'Could not load your certificates.');
+  }
+}
+
+/**
+ * Get a single certificate by its ID (which is the attempt ID it was derived
+ * from). Returns null if the attempt doesn't exist or wasn't passed.
+ */
+export async function getCertificateById(
+  id: string,
+): Promise<ApiResult<Certificate | null>> {
+  try {
+    await delay(null, 120);
+
+    const attempt = getAttemptById(id);
+    if (!attempt) return ok(null);
+
+    const cert = await buildCertificate(attempt);
+    return ok(cert);
+  } catch (e) {
+    return fromError(e, 'Could not load certificate.');
   }
 }

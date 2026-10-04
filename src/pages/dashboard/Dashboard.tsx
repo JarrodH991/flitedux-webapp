@@ -5,14 +5,15 @@
 //
 // Shows:
 //   - Greeting + sign out
-//   - Stats (exams taken, passed, average score, in progress)
-//   - Feature: "Take your exams" (links to /exam/dashboard)
-//   - Recent exam activity
+//   - Stats (courses, exams taken, passed, average score)
+//   - Mini calendar + due-this-week list
 //   - My Courses (real enrolments from the enrolments store)
+//   - Feature: "Take your exams"
+//   - Recent exam activity
 //   - Certificates (placeholder)
 //
-// 🔌 AWS: Reads from services/api.ts. Enrolments come from the
-//         `enrolments` table in production.
+// 🔌 AWS: Reads from services/api.ts. Enrolments, attempts, exams,
+//         assignments, and calendar events all come from the same seam.
 // ============================================================================
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -23,6 +24,15 @@ import * as api from '../../services/api';
 
 import type { Attempt, Exam } from '../../types/exam.types';
 import type { Enrolment } from '../../types/course.types';
+
+import { MiniCalendar } from '../../components/dashboard/MiniCalendar';
+import type {
+  CalendarEvent,
+  AssignmentWithProgress,
+} from '../../types/assignment.types';
+
+import { CertificateCard } from '../../components/dashboard/CertificateCard';
+import type { Certificate } from '../../types/certificate.types';
 
 // ---------------------------------------------------------------------------
 // STYLES
@@ -409,6 +419,127 @@ const pageCss = `
 .fx-dash-pill.wip  { background: #fef3c7; color: #92400e; }
 .fx-dash-pill.owned { background: #dbeafe; color: #1e40af; }
 
+/* ================= Upcoming section ================= */
+.fx-dash-upcoming-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (min-width: 720px) {
+  .fx-dash-upcoming-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.fx-dash-due-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+}
+.fx-dash-due-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.fx-dash-due-title {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+}
+.fx-dash-due-link {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #d95300;
+  text-decoration: none;
+}
+.fx-dash-due-link:hover {
+  text-decoration: underline;
+}
+
+.fx-dash-due-empty {
+  text-align: center;
+  padding: 24px 12px;
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+.fx-dash-due-empty-icon {
+  font-size: 1.8rem;
+  opacity: 0.4;
+  margin-bottom: 8px;
+}
+
+.fx-dash-due-list {
+  display: grid;
+  gap: 8px;
+}
+
+.fx-dash-due-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  text-decoration: none;
+  color: inherit;
+  transition: background-color 0.12s ease;
+}
+.fx-dash-due-item:hover {
+  background: #f8fafc;
+}
+
+.fx-dash-due-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 6px;
+}
+.fx-dash-due-dot.high   { background: #dc2626; }
+.fx-dash-due-dot.normal { background: #d95300; }
+.fx-dash-due-dot.low    { background: #94a3b8; }
+.fx-dash-due-dot.overdue { background: #dc2626; }
+
+.fx-dash-due-info {
+  flex: 1;
+  min-width: 0;
+}
+.fx-dash-due-name {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.fx-dash-due-meta {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  font-weight: 500;
+  margin-top: 3px;
+}
+.fx-dash-due-meta.overdue {
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.fx-dash-due-more {
+  font-size: 0.78rem;
+  color: #d95300;
+  font-weight: 700;
+  text-align: center;
+  padding: 8px 0 0;
+  text-decoration: none;
+}
+
 /* Loading */
 .fx-dash-loading {
   min-height: 40vh;
@@ -434,14 +565,25 @@ export const Dashboard: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
+  // ---- Core dashboard data ----
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
   const [enrolments, setEnrolments] = useState<Enrolment[]>([]);
+
+  // ---- Calendar / assignment data ----
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const [upcomingAssignments, setUpcomingAssignments] = useState<
+    AssignmentWithProgress[]
+  >([]);
+  const [certificates, setCertificates] = useState<Certificate[]>([]);
+
+  // ---- Loading / error ----
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // ---------------------------------------------------------------------------
-  // Load data — attempts, exams, enrolments in parallel
+  // Load data — attempts, exams, enrolments, calendar events, assignments
+  // all in parallel.
   // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!user) return;
@@ -451,14 +593,25 @@ export const Dashboard: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      const [attemptsRes, examsRes, enrolmentsRes] = await Promise.all([
-        api.getUserAttempts(user!.id),
-        api.getAvailableExamsForUser(user!.id),
-        api.getUserEnrolments(user!.id),
-      ]);
+      const [
+  attemptsRes,
+  examsRes,
+  enrolmentsRes,
+  eventsRes,
+  assignmentsRes,
+  certsRes,
+] = await Promise.all([
+  api.getUserAttempts(user!.id),
+  api.getAvailableExamsForUser(user!.id),
+  api.getUserEnrolments(user!.id),
+  api.getCalendarEvents(user!.id),
+  api.getAssignmentsForUser(user!.id),
+  api.getCertificatesForUser(user!.id),
+]);
 
       if (cancelled) return;
 
+      // Core data — if any of these fail, show the error
       if (!attemptsRes.ok) {
         setError(attemptsRes.error.message);
         setLoading(false);
@@ -478,6 +631,18 @@ export const Dashboard: React.FC = () => {
       setAttempts(attemptsRes.data);
       setExams(examsRes.data);
       setEnrolments(enrolmentsRes.data);
+
+      // Calendar / assignment data — non-fatal if they fail
+      if (eventsRes.ok) setCalendarEvents(eventsRes.data);
+      if (assignmentsRes.ok) {
+        const upcoming = assignmentsRes.data.filter((a) => {
+          if (a.status === 'completed' || a.status === 'late') return false;
+          return a.daysUntilDue <= 7;
+        });
+        setUpcomingAssignments(upcoming);
+      }
+
+      if (certsRes.ok) setCertificates(certsRes.data);
       setLoading(false);
     }
 
@@ -632,6 +797,136 @@ export const Dashboard: React.FC = () => {
                 <div className="fx-dash-stat-value">{stats.avgScore}%</div>
               </div>
             </div>
+
+            {/* ============ UPCOMING: CALENDAR + DUE THIS WEEK ============ */}
+            <div className="fx-dash-section">
+              <div className="fx-dash-section-head">
+                <h2 className="fx-dash-section-title">Upcoming</h2>
+                <Link
+                  to="/dashboard/calendar"
+                  className="fx-dash-section-link"
+                >
+                  Open full calendar →
+                </Link>
+              </div>
+
+              <div className="fx-dash-upcoming-grid">
+                {/* Left: Mini calendar */}
+                <MiniCalendar
+                  events={calendarEvents}
+                  onOpenFullCalendar={() => navigate('/dashboard/calendar')}
+                />
+
+                {/* Right: Due this week list */}
+                <div className="fx-dash-due-card">
+                  <div className="fx-dash-due-head">
+                    <h3 className="fx-dash-due-title">Due this week</h3>
+                    {upcomingAssignments.length > 0 && (
+                      <Link
+                        to="/dashboard/todo"
+                        className="fx-dash-due-link"
+                      >
+                        To do list →
+                      </Link>
+                    )}
+                  </div>
+
+                  {upcomingAssignments.length === 0 ? (
+                    <div className="fx-dash-due-empty">
+                      <div
+                        className="fx-dash-due-empty-icon"
+                        aria-hidden="true"
+                      >
+                        ✨
+                      </div>
+                      Nothing due this week.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="fx-dash-due-list">
+                        {upcomingAssignments.slice(0, 5).map((item) => {
+                          const isOverdue = item.status === 'overdue';
+                          const dotClass = isOverdue
+                            ? 'overdue'
+                            : item.assignment.priority;
+
+                          const dueLabel = isOverdue
+                            ? 'Overdue'
+                            : item.daysUntilDue < 0
+                              ? 'Overdue'
+                              : item.daysUntilDue === 0
+                                ? 'Due today'
+                                : item.daysUntilDue === 1
+                                  ? 'Due tomorrow'
+                                  : `Due in ${item.daysUntilDue} days`;
+
+                          return (
+                            <Link
+                              key={item.assignment.id}
+                              to="/dashboard/todo"
+                              className="fx-dash-due-item"
+                            >
+                              <span
+                                className={`fx-dash-due-dot ${dotClass}`}
+                                aria-hidden="true"
+                              />
+                              <span className="fx-dash-due-info">
+                                <span className="fx-dash-due-name">
+                                  {item.assignment.title}
+                                </span>
+                                <span
+                                  className={`fx-dash-due-meta${
+                                    isOverdue ? ' overdue' : ''
+                                  }`}
+                                >
+                                  {dueLabel}
+                                </span>
+                              </span>
+                            </Link>
+                          );
+                        })}
+                      </div>
+
+                      {upcomingAssignments.length > 5 && (
+                        <Link
+                          to="/dashboard/todo"
+                          className="fx-dash-due-more"
+                          style={{
+                            display: 'block',
+                            marginTop: 8,
+                          }}
+                        >
+                          +{upcomingAssignments.length - 5} more →
+                        </Link>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            {/* ============ RECENT CERTIFICATES ============ */}
+{certificates.length > 0 && (
+  <div className="fx-dash-section">
+    <div className="fx-dash-section-head">
+      <h2 className="fx-dash-section-title">
+        Recent certificates
+      </h2>
+      <Link
+        to="/dashboard/certificates"
+        className="fx-dash-section-link"
+      >
+        View all →
+      </Link>
+    </div>
+
+    <div className="fx-dash-grid">
+      {certificates.slice(0, 3).map((cert) => (
+        <CertificateCard key={cert.id} certificate={cert} />
+      ))}
+    </div>
+  </div>
+)}
 
             {/* ============ MY COURSES ============ */}
             <div className="fx-dash-section">
