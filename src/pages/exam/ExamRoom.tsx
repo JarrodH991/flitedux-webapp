@@ -21,10 +21,12 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../context/authHooks';
 import { ExamProvider } from '../../context/ExamContext';
 import { useExam } from '../../context/examHooks';
+import { useProctoring } from '../../hooks/useProctoring';
 
 import { QuestionCard } from '../../components/exam/QuestionCard';
 import { Navigator } from '../../components/exam/Navigator';
 import { ProctorBar } from '../../components/exam/ProctorBar';
+import { Timer } from '../../components/exam/Timer';
 import { WebcamPreview, type WebcamStatus } from '../../components/exam/WebcamPreview';
 import { TabSwitchWarning } from '../../components/exam/TabSwitchWarning';
 
@@ -41,6 +43,11 @@ const pageCss = `
   padding: 90px 16px 40px;
   font-family: sans-serif;
   box-sizing: border-box;
+}
+
+/* When in exam mode, the navbar is hidden, so reduce the top padding */
+body.fx-in-exam .fx-room-page {
+  padding-top: 24px;
 }
 
 .fx-room-inner {
@@ -499,7 +506,33 @@ const ExamRoomInner: React.FC<ExamRoomInnerProps> = ({ attemptId }) => {
   // Refs
   const saveResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initializedRef = useRef(false);
-const lastProctorEventRef = useRef<{ type: string; time: number } | null>(null);
+  const lastProctorEventRef = useRef<{ type: string; time: number } | null>(null);
+
+  // -------------------------------------------------------------------------
+  // PROCTORING — copy / cut / paste / right-click blocking + audit trail.
+  //
+  // This hook handles all clipboard blocking and captures what was selected
+  // when an attempt happened. It only activates while in the exam.
+  // -------------------------------------------------------------------------
+  useProctoring({
+    view,
+    logEvent: logProctorEvent,
+  });
+
+  // -------------------------------------------------------------------------
+  // EXAM MODE — hide the site navbar while the exam room is mounted.
+  //
+  // We add a class to <body> so the navbar's CSS can react to it. The cleanup
+  // removes the class when the user navigates away (including on submit
+  // redirect, browser back, or route change).
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    document.body.classList.add('fx-in-exam');
+    return () => {
+      document.body.classList.remove('fx-in-exam');
+    };
+  }, []);
+
   // -------------------------------------------------------------------------
   // INITIALIZE on mount
   // -------------------------------------------------------------------------
@@ -524,47 +557,47 @@ const lastProctorEventRef = useRef<{ type: string; time: number } | null>(null);
   }, []);
 
   useEffect(() => {
-  const handleFullscreenChange = () => {
-    const isFull = Boolean(document.fullscreenElement);
-    setFullscreenActive(isFull);
-    if (!isFull && view === 'question') {
-      const now = Date.now();
-      const last = lastProctorEventRef.current;
-      if (last && last.type === 'fullscreen-exit' && now - last.time < 500) {
-        return;
+    const handleFullscreenChange = () => {
+      const isFull = Boolean(document.fullscreenElement);
+      setFullscreenActive(isFull);
+      if (!isFull && view === 'question') {
+        const now = Date.now();
+        const last = lastProctorEventRef.current;
+        if (last && last.type === 'fullscreen-exit' && now - last.time < 500) {
+          return;
+        }
+        lastProctorEventRef.current = { type: 'fullscreen-exit', time: now };
+        void logProctorEvent('fullscreen-exit');
+        setShowTabWarning(true);
       }
-      lastProctorEventRef.current = { type: 'fullscreen-exit', time: now };
-      void logProctorEvent('fullscreen-exit');
-      setShowTabWarning(true);
-    }
-  };
-  document.addEventListener('fullscreenchange', handleFullscreenChange);
-  handleFullscreenChange();
-  return () =>
-    document.removeEventListener('fullscreenchange', handleFullscreenChange);
-}, [view, logProctorEvent]);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    handleFullscreenChange();
+    return () =>
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, [view, logProctorEvent]);
 
   // -------------------------------------------------------------------------
   // TAB VISIBILITY
   // -------------------------------------------------------------------------
- useEffect(() => {
-  const handleVisibility = () => {
-    if (document.hidden && view === 'question') {
-      // Dedupe: ignore if we logged a tab-switch in the last 500ms
-      const now = Date.now();
-      const last = lastProctorEventRef.current;
-      if (last && last.type === 'tab-switch' && now - last.time < 500) {
-        return;
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && view === 'question') {
+        // Dedupe: ignore if we logged a tab-switch in the last 500ms
+        const now = Date.now();
+        const last = lastProctorEventRef.current;
+        if (last && last.type === 'tab-switch' && now - last.time < 500) {
+          return;
+        }
+        lastProctorEventRef.current = { type: 'tab-switch', time: now };
+        void logProctorEvent('tab-switch');
+        setShowTabWarning(true);
       }
-      lastProctorEventRef.current = { type: 'tab-switch', time: now };
-      void logProctorEvent('tab-switch');
-      setShowTabWarning(true);
-    }
-  };
-  document.addEventListener('visibilitychange', handleVisibility);
-  return () =>
-    document.removeEventListener('visibilitychange', handleVisibility);
-}, [view, logProctorEvent]);
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () =>
+      document.removeEventListener('visibilitychange', handleVisibility);
+  }, [view, logProctorEvent]);
 
   // -------------------------------------------------------------------------
   // BEFOREUNLOAD
@@ -580,40 +613,9 @@ const lastProctorEventRef = useRef<{ type: string; time: number } | null>(null);
   }, [view]);
 
   // -------------------------------------------------------------------------
-  // COPY / PASTE / RIGHT-CLICK BLOCKING
+  // NOTE: Copy / paste / right-click blocking now lives in useProctoring().
+  // The old inline useEffect has been removed — the hook owns that logic.
   // -------------------------------------------------------------------------
-  useEffect(() => {
-    if (view !== 'question') return;
-
-    const blockCopy = (e: ClipboardEvent) => {
-      e.preventDefault();
-      void logProctorEvent('copy-attempt');
-    };
-    const blockPaste = (e: ClipboardEvent) => {
-      e.preventDefault();
-      void logProctorEvent('paste-attempt');
-    };
-    const blockCut = (e: ClipboardEvent) => {
-      e.preventDefault();
-      void logProctorEvent('copy-attempt');
-    };
-    const blockRightClick = (e: MouseEvent) => {
-      e.preventDefault();
-      void logProctorEvent('right-click');
-    };
-
-    document.addEventListener('copy', blockCopy);
-    document.addEventListener('paste', blockPaste);
-    document.addEventListener('cut', blockCut);
-    document.addEventListener('contextmenu', blockRightClick);
-
-    return () => {
-      document.removeEventListener('copy', blockCopy);
-      document.removeEventListener('paste', blockPaste);
-      document.removeEventListener('cut', blockCut);
-      document.removeEventListener('contextmenu', blockRightClick);
-    };
-  }, [view, logProctorEvent]);
 
   // -------------------------------------------------------------------------
   // SAVE INDICATOR
@@ -724,60 +726,60 @@ const lastProctorEventRef = useRef<{ type: string; time: number } | null>(null);
   // RENDER — ERROR
   // -------------------------------------------------------------------------
   if (error) {
-  return (
-    <div className="fx-room-page">
-      <style>{pageCss}</style>
-      <div className="fx-room-inner">
-        <div className="fx-room-error">
-          {expired ? (
-            <>
-              <h2>This attempt has expired</h2>
-              <p>
-                The time limit for this attempt has passed. Your answers were
-                saved and the attempt may have been auto-submitted. If you're
-                seeing this in error, contact your training coordinator.
-              </p>
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 10,
-                  justifyContent: 'center',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <a
-                  href={`/exam/results/${attemptId}`}
-                  className="fx-room-error-btn"
-                >
-                  View results
-                </a>
-                <a
-                  href="/exam/dashboard"
-                  className="fx-room-error-btn"
+    return (
+      <div className="fx-room-page">
+        <style>{pageCss}</style>
+        <div className="fx-room-inner">
+          <div className="fx-room-error">
+            {expired ? (
+              <>
+                <h2>This attempt has expired</h2>
+                <p>
+                  The time limit for this attempt has passed. Your answers were
+                  saved and the attempt may have been auto-submitted. If you're
+                  seeing this in error, contact your training coordinator.
+                </p>
+                <div
                   style={{
-                    background: '#ffffff',
-                    color: '#334155',
-                    border: '1px solid #cbd5e1',
+                    display: 'flex',
+                    gap: 10,
+                    justifyContent: 'center',
+                    flexWrap: 'wrap',
                   }}
                 >
+                  <a
+                    href={`/exam/results/${attemptId}`}
+                    className="fx-room-error-btn"
+                  >
+                    View results
+                  </a>
+                  <a
+                    href="/exam/dashboard"
+                    className="fx-room-error-btn"
+                    style={{
+                      background: '#ffffff',
+                      color: '#334155',
+                      border: '1px solid #cbd5e1',
+                    }}
+                  >
+                    Back to dashboard
+                  </a>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2>Could not load the exam</h2>
+                <p>{error}</p>
+                <a href="/exam/dashboard" className="fx-room-error-btn">
                   Back to dashboard
                 </a>
-              </div>
-            </>
-          ) : (
-            <>
-              <h2>Could not load the exam</h2>
-              <p>{error}</p>
-              <a href="/exam/dashboard" className="fx-room-error-btn">
-                Back to dashboard
-              </a>
-            </>
-          )}
+              </>
+            )}
+          </div>
         </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
   // -------------------------------------------------------------------------
   // RENDER — RULES SCREEN
@@ -884,7 +886,6 @@ const lastProctorEventRef = useRef<{ type: string; time: number } | null>(null);
       </div>
     );
   }
-
   // -------------------------------------------------------------------------
   // RENDER — REVIEW
   // -------------------------------------------------------------------------
@@ -1080,8 +1081,9 @@ const lastProctorEventRef = useRef<{ type: string; time: number } | null>(null);
             )}
           </div>
 
-          {/* RIGHT: Sidebar with navigator + webcam */}
+          {/* RIGHT: Sidebar with timer + navigator + webcam */}
           <aside className="fx-room-sidebar">
+            <Timer size="lg" />
             <Navigator />
             <WebcamPreview
               onStatusChange={setWebcamStatus}

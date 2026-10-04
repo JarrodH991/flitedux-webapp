@@ -35,6 +35,14 @@ const navCss = `
   transition: transform 0.3s ease-in-out;
   box-sizing: border-box;
 }
+
+/* Hide the navbar during exams. The ExamRoom component adds the
+   "fx-in-exam" class to <body> while mounted. */
+body.fx-in-exam .fx-nav {
+  transform: translateY(-100%) !important;
+  pointer-events: none;
+}
+
 .fx-nav-inner {
   display: flex;
   justify-content: space-between;
@@ -517,7 +525,6 @@ const navCss = `
 .fx-nav-mobile-cta.danger { background: #dc2626; }
 .fx-nav-mobile-cta:hover { filter: brightness(0.95); }
 `;
-
 // ---------------------------------------------------------------------------
 // COMPONENT
 // ---------------------------------------------------------------------------
@@ -605,23 +612,22 @@ export const Navbar: React.FC = () => {
   // Used to show a small red badge on the ☰ menu button.
   // -------------------------------------------------------------------------
   // Fetch the to-do badge count whenever the user changes.
-//
-// We don't call setTodoCount(0) when there's no user — that would be a
-// synchronous setState inside an effect, which React flags as a cascade.
-// Instead we just skip the fetch. The badge is hidden when not signed in
-// anyway (the menu button only renders when authenticated).
-useEffect(() => {
-  if (!user) return;
-  let cancelled = false;
-  void api.getTodoCount(user.id).then((res) => {
-    if (!cancelled && res.ok) {
-      setTodoCount(res.data);
-    }
-  });
-  return () => {
-    cancelled = true;
-  };
-}, [user]);
+  // We don't call setTodoCount(0) when there's no user — that would be a
+  // synchronous setState inside an effect, which React flags as a cascade.
+  // Instead we just skip the fetch. The badge is hidden when not signed in
+  // anyway (the menu button only renders when authenticated).
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    void api.getTodoCount(user.id).then((res) => {
+      if (!cancelled && res.ok) {
+        setTodoCount(res.data);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   // -------------------------------------------------------------------------
   // Close any open menus. Called from every Link's onClick.

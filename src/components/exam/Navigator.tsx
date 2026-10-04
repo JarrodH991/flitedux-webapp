@@ -26,7 +26,7 @@ import { useExam } from '../../context/examHooks';
 // ---------------------------------------------------------------------------
 
 const navCss = `
-.fx-nav {
+.fx-qnav {
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
@@ -34,7 +34,7 @@ const navCss = `
   box-shadow: 0 2px 10px rgba(0,0,0,0.02);
 }
 
-.fx-nav-title {
+.fx-qnav-title {
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.8px;
@@ -47,7 +47,7 @@ const navCss = `
   gap: 8px;
 }
 
-.fx-nav-progress {
+.fx-qnav-progress {
   font-size: 0.72rem;
   font-weight: 600;
   color: #d95300;
@@ -56,7 +56,7 @@ const navCss = `
 }
 
 /* Filter tabs */
-.fx-nav-filters {
+.fx-qnav-filters {
   display: flex;
   gap: 4px;
   padding: 3px;
@@ -64,7 +64,7 @@ const navCss = `
   border-radius: 8px;
   margin-bottom: 14px;
 }
-.fx-nav-filter {
+.fx-qnav-filter {
   flex: 1;
   padding: 6px 8px;
   background: transparent;
@@ -78,21 +78,21 @@ const navCss = `
   transition: background-color 0.15s ease, color 0.15s ease;
   white-space: nowrap;
 }
-.fx-nav-filter:hover { color: #d95300; }
-.fx-nav-filter.active {
+.fx-qnav-filter:hover { color: #d95300; }
+.fx-qnav-filter.active {
   background: #ffffff;
   color: #d95300;
   box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
 
 /* Grid of numbers */
-.fx-nav-grid {
+.fx-qnav-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
   gap: 6px;
 }
 
-.fx-nav-btn {
+.fx-qnav-btn {
   aspect-ratio: 1 / 1;
   display: flex;
   align-items: center;
@@ -109,41 +109,41 @@ const navCss = `
   position: relative;
   padding: 0;
 }
-.fx-nav-btn:hover:not(:disabled) {
+.fx-qnav-btn:hover:not(:disabled) {
   border-color: #fdba74;
   color: #d95300;
   transform: translateY(-1px);
 }
-.fx-nav-btn:focus-visible {
+.fx-qnav-btn:focus-visible {
   outline: 2px solid #d95300;
   outline-offset: 2px;
 }
 
 /* Answered — filled orange */
-.fx-nav-btn.answered {
+.fx-qnav-btn.answered {
   background: #d95300;
   border-color: #d95300;
   color: #ffffff;
 }
-.fx-nav-btn.answered:hover:not(:disabled) {
+.fx-qnav-btn.answered:hover:not(:disabled) {
   background: #b54400;
   border-color: #b54400;
   color: #ffffff;
 }
 
 /* Current — thick dark ring */
-.fx-nav-btn.current {
+.fx-qnav-btn.current {
   border-color: #0f172a;
   border-width: 2.5px;
   color: #0f172a;
   transform: scale(1.05);
 }
-.fx-nav-btn.current.answered {
+.fx-qnav-btn.current.answered {
   color: #ffffff;
 }
 
 /* Flagged — small dot indicator (top-right) */
-.fx-nav-btn.flagged::after {
+.fx-qnav-btn.flagged::after {
   content: '';
   position: absolute;
   top: 3px;
@@ -155,13 +155,13 @@ const navCss = `
   box-shadow: 0 0 0 1.5px #ffffff;
 }
 
-.fx-nav-btn:disabled {
+.fx-qnav-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 
 /* Legend */
-.fx-nav-legend {
+.fx-qnav-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 10px 14px;
@@ -171,12 +171,12 @@ const navCss = `
   font-size: 0.72rem;
   color: #64748b;
 }
-.fx-nav-legend-item {
+.fx-qnav-legend-item {
   display: flex;
   align-items: center;
   gap: 6px;
 }
-.fx-nav-legend-swatch {
+.fx-qnav-legend-swatch {
   width: 12px;
   height: 12px;
   border-radius: 4px;
@@ -184,18 +184,18 @@ const navCss = `
   background: #ffffff;
   flex-shrink: 0;
 }
-.fx-nav-legend-swatch.answered {
+.fx-qnav-legend-swatch.answered {
   background: #d95300;
   border-color: #d95300;
 }
-.fx-nav-legend-swatch.current {
+.fx-qnav-legend-swatch.current {
   border-color: #0f172a;
   border-width: 2.5px;
 }
-.fx-nav-legend-swatch.flagged {
+.fx-qnav-legend-swatch.flagged {
   position: relative;
 }
-.fx-nav-legend-swatch.flagged::after {
+.fx-qnav-legend-swatch.flagged::after {
   content: '';
   position: absolute;
   top: -3px;
@@ -207,7 +207,7 @@ const navCss = `
   box-shadow: 0 0 0 1.5px #ffffff;
 }
 
-.fx-nav-empty {
+.fx-qnav-empty {
   padding: 20px 8px;
   text-align: center;
   color: #94a3b8;
@@ -283,9 +283,9 @@ export const Navigator: React.FC = () => {
     return (
       <>
         <style>{navCss}</style>
-        <div className="fx-nav">
-          <div className="fx-nav-title">Questions</div>
-          <div className="fx-nav-empty">Loading…</div>
+        <div className="fx-qnav">
+          <div className="fx-qnav-title">Questions</div>
+          <div className="fx-qnav-empty">Loading…</div>
         </div>
       </>
     );
@@ -295,9 +295,9 @@ export const Navigator: React.FC = () => {
     return (
       <>
         <style>{navCss}</style>
-        <div className="fx-nav">
-          <div className="fx-nav-title">Questions</div>
-          <div className="fx-nav-empty">No questions loaded.</div>
+        <div className="fx-qnav">
+          <div className="fx-qnav-title">Questions</div>
+          <div className="fx-qnav-empty">No questions loaded.</div>
         </div>
       </>
     );
@@ -310,21 +310,21 @@ export const Navigator: React.FC = () => {
     <>
       <style>{navCss}</style>
 
-      <div className="fx-nav">
-        <div className="fx-nav-title">
+      <div className="fx-qnav">
+        <div className="fx-qnav-title">
           <span>Questions</span>
-          <span className="fx-nav-progress">
+          <span className="fx-qnav-progress">
             {stats.answered} / {stats.total} answered
           </span>
         </div>
 
         {/* Filter tabs */}
-        <div className="fx-nav-filters" role="tablist" aria-label="Question filter">
+        <div className="fx-qnav-filters" role="tablist" aria-label="Question filter">
           <button
             type="button"
             role="tab"
             aria-selected={filter === 'all'}
-            className={`fx-nav-filter${filter === 'all' ? ' active' : ''}`}
+            className={`fx-qnav-filter${filter === 'all' ? ' active' : ''}`}
             onClick={() => setFilter('all')}
           >
             All
@@ -333,7 +333,7 @@ export const Navigator: React.FC = () => {
             type="button"
             role="tab"
             aria-selected={filter === 'flagged'}
-            className={`fx-nav-filter${filter === 'flagged' ? ' active' : ''}`}
+            className={`fx-qnav-filter${filter === 'flagged' ? ' active' : ''}`}
             onClick={() => setFilter('flagged')}
           >
             Flagged {stats.flagged > 0 ? `(${stats.flagged})` : ''}
@@ -342,7 +342,7 @@ export const Navigator: React.FC = () => {
             type="button"
             role="tab"
             aria-selected={filter === 'unanswered'}
-            className={`fx-nav-filter${filter === 'unanswered' ? ' active' : ''}`}
+            className={`fx-qnav-filter${filter === 'unanswered' ? ' active' : ''}`}
             onClick={() => setFilter('unanswered')}
           >
             Unanswered
@@ -351,13 +351,13 @@ export const Navigator: React.FC = () => {
 
         {/* Grid */}
         {visibleSet.size === 0 ? (
-          <div className="fx-nav-empty">
+          <div className="fx-qnav-empty">
             {filter === 'flagged' && 'No questions flagged yet.'}
             {filter === 'unanswered' && 'You have answered every question. Nice.'}
             {filter === 'all' && 'No questions.'}
           </div>
         ) : (
-          <div className="fx-nav-grid" role="list">
+          <div className="fx-qnav-grid" role="list">
             {questions.map((q, index) => {
               // If this question isn't part of the current filter, skip it —
               // but keep the numbering stable by using the real index.
@@ -369,7 +369,7 @@ export const Navigator: React.FC = () => {
               const isCurrent = index === currentIndex;
 
               const cls = [
-                'fx-nav-btn',
+                'fx-qnav-btn',
                 isAnswered ? 'answered' : '',
                 isFlagged ? 'flagged' : '',
                 isCurrent ? 'current' : '',
@@ -395,17 +395,17 @@ export const Navigator: React.FC = () => {
         )}
 
         {/* Legend */}
-        <div className="fx-nav-legend">
-          <div className="fx-nav-legend-item">
-            <span className="fx-nav-legend-swatch answered" aria-hidden="true" />
+        <div className="fx-qnav-legend">
+          <div className="fx-qnav-legend-item">
+            <span className="fx-qnav-legend-swatch answered" aria-hidden="true" />
             <span>Answered</span>
           </div>
-          <div className="fx-nav-legend-item">
-            <span className="fx-nav-legend-swatch current" aria-hidden="true" />
+          <div className="fx-qnav-legend-item">
+            <span className="fx-qnav-legend-swatch current" aria-hidden="true" />
             <span>Current</span>
           </div>
-          <div className="fx-nav-legend-item">
-            <span className="fx-nav-legend-swatch flagged" aria-hidden="true" />
+          <div className="fx-qnav-legend-item">
+            <span className="fx-qnav-legend-swatch flagged" aria-hidden="true" />
             <span>Flagged</span>
           </div>
         </div>
